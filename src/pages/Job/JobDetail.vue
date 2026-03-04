@@ -83,26 +83,6 @@ const getButtonColorClass = (status: NextJobStatus, isLeftButton: boolean = fals
   }
 }
 
-// Fungsi untuk mendapatkan warna badge status
-const getStatusBadgeClass = (status: string) => {
-  const classes: Record<string, string> = {
-    'draft': 'bg-gray-100 text-gray-600',
-    'accepted': 'bg-blue-100 text-blue-600',
-    'on_the_way': 'bg-yellow-100 text-yellow-600',
-    'arrived': 'bg-green-100 text-green-600',
-    'in_progress': 'bg-purple-100 text-purple-600',
-    'pending': 'bg-orange-100 text-orange-600',
-    'paused': 'bg-gray-100 text-gray-600',
-    'under_review': 'bg-indigo-100 text-indigo-600',
-    'revision': 'bg-pink-100 text-pink-600',
-    'completed': 'bg-green-100 text-green-600',
-    'rejected': 'bg-red-100 text-red-600',
-    'approved': 'bg-blue-100 text-blue-600',
-    'cancelled': 'bg-gray-100 text-gray-600'
-  }
-  return classes[status] || 'bg-gray-100 text-gray-600'
-}
-
 const fetchJobDetail = async () => {
   loading.value = true
   error.value = ''
@@ -113,7 +93,7 @@ const fetchJobDetail = async () => {
     
     // Set available next statuses dari response
     if (response.available_next_statuses) {
-      availableNextStatuses.value = response.available_next_statuses
+      availableNextStatuses.value = response.available_next_statuses as unknown as AvailableNextStatuses
     }
   } catch (err: any) {
     console.error('Failed to fetch job detail:', err)
@@ -136,6 +116,7 @@ const handleLeftAction = () => {
   if (cancelActions.length === 1) {
     // Jika hanya 1 action, langsung buka modal konfirmasi
     const status = cancelActions[0]
+    if (!status) return
     const label = getStatusLabel(status)
     
     confirmTitle.value = `Konfirmasi ${label}`
@@ -190,7 +171,8 @@ const handleMainAction = async () => {
   
   // Ambil action pertama (biasanya hanya satu)
   const nextStatus = nextStepActions[0]
-  
+  if (!nextStatus) return
+
   // Handle khusus untuk status yang memerlukan navigasi
   if (nextStatus === 'in_progress') {
     router.push(`/form-inspection/${jobId}`)
@@ -204,6 +186,7 @@ const handleMainAction = async () => {
     await jobService.patchJobStatus(
       inspection.value.id,
       nextStatus
+      
     )
     
     // REFRESH DATA - fetch ulang detail terbaru
@@ -265,7 +248,7 @@ const showLeftButton = computed(() => {
 // Label untuk tombol kiri
 const leftButtonLabel = computed(() => {
   const actions = availableNextStatuses.value.cancel_actions
-  if (actions.length === 1) return getStatusLabel(actions[0])
+  if (actions.length === 1 && actions[0]) return getStatusLabel(actions[0])
   if (actions.length > 1) return 'Lainnya'
   return ''
 })
@@ -273,9 +256,8 @@ const leftButtonLabel = computed(() => {
 // Warna tombol kiri
 const leftButtonClass = computed(() => {
   const actions = availableNextStatuses.value.cancel_actions
-  if (actions.length === 1) {
-    return getButtonColorClass(actions[0], true)
-  }
+  // leftButtonClass
+  if (actions.length === 1 && actions[0]) return getButtonColorClass(actions[0], true)
   return 'border-gray-200 text-gray-600 hover:bg-gray-50'
 })
 
@@ -303,9 +285,7 @@ const mainButtonLabel = computed(() => {
   }
   
   // Jika ada next step actions
-  if (nextStepActions.length > 0) {
-    return getStatusLabel(nextStepActions[0])
-  }
+  if (nextStepActions.length > 0 && nextStepActions[0]) return getStatusLabel(nextStepActions[0])
   
   return 'Tidak Ada Aksi'
 })
@@ -334,9 +314,7 @@ const mainButtonClass = computed(() => {
   }
   
   // Jika ada next step actions
-  if (nextStepActions.length > 0) {
-    return getButtonColorClass(nextStepActions[0], false)
-  }
+  if (nextStepActions.length > 0 && nextStepActions[0]) return getButtonColorClass(nextStepActions[0], false)
   
   return 'bg-gradient-to-r from-gray-400 to-gray-500'
 })
@@ -470,7 +448,7 @@ onMounted(() => {
           <button 
             v-for="tab in ['informasi', 'spesifikasi']"
             :key="tab"
-            @click="activeTab = tab"
+            @click="activeTab = tab as 'informasi' | 'spesifikasi'"
             class="flex-1 py-2.5 text-sm font-medium rounded-lg transition-all capitalize"
             :class="activeTab === tab ? 'bg-blue-500 text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'"
           >

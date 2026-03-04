@@ -59,7 +59,7 @@ const inputType = computed(() => {
  * 🔥 APPLY CAPITALIZATION (Sesuai Filament)
  */
 const applyCapitalization = (value: string): string => {
-  const mode = settings.value?.capitalization || 'none'
+  const mode = (settings.value?.capitalization || 'none') as string
 
   switch (mode) {
     case 'characters': // Huruf Besar Semua

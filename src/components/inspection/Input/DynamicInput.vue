@@ -12,9 +12,9 @@
     :disabled="disabled"
     @update:model-value="$emit('update:modelValue', $event)"
     @update:error="$emit('update:error', $event)"
-    @update:nested-value="(optVal, field, val) => $emit('update:nestedValue', optVal, field, val)"
-    @update:nested-error="(optVal, field, err) => $emit('update:nestedError', optVal, field, err)"
-    @update:image-nested-value="(field, val) => $emit('update:imageNestedValue', field, val)"
+    @update:nested-value="(optVal: string, field: string, val: any) => $emit('update:nestedValue', optVal, field, val)"
+    @update:nested-error="(optVal: string, field: string, err: string) => $emit('update:nestedError', optVal, field, err)"
+    @update:image-nested-value="(field: string, val: any) => $emit('update:imageNestedValue', field, val)"
     @update:upload-status="$emit('update:uploadStatus', $event)"
   />
 </template>

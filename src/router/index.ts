@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth(local)'
 import MainLayout from '../pages/layouts/MainLayout.vue'
 
 // Pages
-import login from '../pages/auth/login.vue'
+import Login from '../pages/auth/Login.vue'
 import Home from '../pages/Home.vue'
 import Profile from '../pages/Profile.vue'
 import JobDetail from '../pages/Job/JobDetail.vue'
@@ -16,7 +16,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/login' },
-    { path: '/login', name: 'Login', component: login, meta: { requiresGuest: true } },
+    { path: '/login', name: 'Login', component: Login, meta: { requiresGuest: true } },
     {
       path: '/dashboard',
       component: MainLayout, // Layout wrapper
@@ -49,7 +49,7 @@ const router = createRouter({
 
 
 // ⚡ Router guard: cek auth sebelum navigasi
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
 
   // Cek auth

@@ -115,7 +115,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', value: any): void
   (e: 'update:error', error: string): void
-  (e: 'update:nestedValue', optionValue: string, field: 'textarea' | 'image', value: any): void
+  (e: 'update:nestedValue', optionValue: string, field: 'textarea' | 'image'|'damage_ids', value: any): void
   (e: 'update:nestedError', optionValue: string, field: 'textarea' | 'image', error: string): void
   (e: 'update:uploadStatus', status: { hasUploading: boolean; hasFailed: boolean }): void
 }>()
@@ -280,7 +280,7 @@ const handleBlur = () => {
 /* =========================
    NESTED VALUES HANDLERS
 ========================= */
-const handleNestedValueUpdate = (optionValue: string, field: 'textarea' | 'image', value: any) => {
+const handleNestedValueUpdate = (optionValue: string, field: 'textarea' | 'image'|'damage_ids', value: any) => {
   emit('update:nestedValue', optionValue, field, value)
 }
 

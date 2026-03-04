@@ -6,8 +6,8 @@
       :value="modelValue"
       @input="handleInput"
       @blur="validate"
-      :min="settings.min_time"
-      :max="settings.max_time"
+      :min="settings.min_time ?? undefined"
+      :max="settings.max_time ?? undefined"
       :step="timeStep"
       :class="[
         'w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors',
@@ -73,7 +73,9 @@ const validateField = (value: string) => {
       
       // Validasi step minutes
       if (settings.value?.step_minutes && !error) {
-        const [hours, minutes] = value.split(':').map(Number)
+        const [hoursStr, minutesStr] = value.split(':')
+        const hours   = Number(hoursStr   ?? 0)
+        const minutes = Number(minutesStr ?? 0)
         const totalMinutes = hours * 60 + minutes
         
         if (totalMinutes % settings.value.step_minutes !== 0) {

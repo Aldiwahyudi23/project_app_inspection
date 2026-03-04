@@ -108,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import type { FormItem } from '../../../types/formInspection'
 
 const props = defineProps<{
@@ -137,8 +137,8 @@ const lastValueWasFromDamage = ref(false)
 /* ===========================
    DAMAGE DATA SOURCE
 =========================== */
-const damageList = computed(() => settings.value.damage_ids || [])
-
+// const damageList = computed(() => settings.value.damage_ids || [])
+const damageList = computed(() => (settings.value.damage_ids || []) as Array<{ id: number | string; label: string; value: string }>)
 /* ===========================
    selectedDamageIds — STATE LOKAL
    Sumber kebenaran UI pill damage.
@@ -365,32 +365,6 @@ const validate = () => {
   validateField(props.modelValue || '')
 }
 
-/* ===========================
-   RICH TEXT HELPER - Insert teks
-=========================== */
-const insertTextPreserveHtml = (text: string) => {
-  if (!editor.value) return
-
-  const selection = window.getSelection()
-  if (!selection || !selection.rangeCount) {
-    editor.value.innerHTML += text
-    return
-  }
-
-  const range = selection.getRangeAt(0)
-  if (!editor.value.contains(range.commonAncestorContainer)) {
-    editor.value.innerHTML += text
-    return
-  }
-
-  range.deleteContents()
-  const textNode = document.createTextNode(text)
-  range.insertNode(textNode)
-  range.setStartAfter(textNode)
-  range.setEndAfter(textNode)
-  selection.removeAllRanges()
-  selection.addRange(range)
-}
 
 /* ===========================
    RICH TEXT HELPER - Update teks damage

@@ -17,17 +17,16 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import BottomNav from '../../components/BottomNav.vue'
 
 const route = useRoute()
-const router = useRouter()
 const title = ref('Home')
 
 watch(route, () => {
-  // Ganti judul header sesuai route
-  title.value = route.meta.title || 'Dashboard'
+  title.value = (route.meta.title as string) || 'Dashboard'
 })
+
 </script>
 
 <style scoped>

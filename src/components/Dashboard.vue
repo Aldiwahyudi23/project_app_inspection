@@ -31,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { useAuthStore } from '../stores/auth(cookie)'
+import { useAuthStore } from '../stores/auth(local)'
 import { useRouter } from 'vue-router'
 
 const authStore = useAuthStore()

@@ -4,7 +4,7 @@ import { ref, onMounted, computed, watch, nextTick, provide  } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getFormInspection, saveInspectionForm } from '../../services/formInspectionService'
 import { useFormStorage } from '../../composables/useFormStorage'
-import type { FormInspectionData, Section, FormItem, VehicleAttribute } from '../../types/formInspection'
+import type { FormInspectionData, FormItem, VehicleAttribute } from '../../types/formInspection'
 
 import InspectionNavigation from '../../components/inspection/InspectionNavigation.vue'
 import InspectionSection    from '../../components/inspection/InspectionSection.vue'
@@ -104,8 +104,8 @@ const checkTriggers = (parentItemId: number, value: any) => {
 
   formData.value.template.sections.forEach(section => {
     section.items.forEach(item => {
-      if (item.settings?.parent_item_id?.length > 0) {
-        const parentIds = item.settings.parent_item_id.map((id: any) => Number(id))
+      if ((item.settings?.parent_item_id?.length ?? 0) > 0) {
+        const parentIds = (item.settings!.parent_item_id as any[]).map((id: any) => Number(id))
         if (parentIds.includes(parentItemId)) childItems.push(item)
       }
     })
@@ -114,9 +114,9 @@ const checkTriggers = (parentItemId: number, value: any) => {
   childItems.forEach(item => { triggeredItems.value[item.id] = false })
 
   selectedValues.forEach(selectedValue => {
-    const option = parentItem.settings.options.find((opt: any) => opt.value === selectedValue)
-    if (option?.show_trigger && option.target_item_id?.length > 0) {
-      option.target_item_id.map((id: any) => Number(id)).forEach((targetId: number) => {
+    const option = parentItem.settings?.options?.find((opt: any) => opt.value === selectedValue) as any
+    if (option?.show_trigger && (option.target_item_id?.length ?? 0) > 0) {
+      (option.target_item_id as any[]).map((id: any) => Number(id)).forEach((targetId: number) => {
         const targetItem = childItems.find(i => i.id === targetId)
         if (targetItem) {
           const targetParentIds = targetItem.settings.parent_item_id?.map((id: any) => Number(id)) || []
@@ -162,7 +162,6 @@ const sectionsWithProcessedItems = computed(() => {
   if (!formData.value) return []
   const vehicleAttr  = formData.value.inspection.atribute_vehicle
   const features     = (vehicleAttr?.features ?? []) as string[]
-  const _formValues  = formValues.value // track reaktivitas
 
   return formData.value.template.sections.map(section => ({
     ...section,
@@ -245,7 +244,7 @@ const metadata    = computed(() => formData.value?.metadata || { damage_categori
 const lastSectionId = computed((): number | null => {
   if (!formData.value?.template.sections.length) return null
   const sorted = [...formData.value.template.sections].sort((a, b) => b.sort_order - a.sort_order)
-  return sorted[0].id
+  return sorted[0]?.id ?? null
 })
 
 const isOnLastSection = computed(() => activeSection.value === lastSectionId.value)
@@ -545,6 +544,7 @@ const loadForm = async (id: number) => {
       Object.keys(storedValues).forEach(key => {
         const itemId     = Number(key)
         const storedItem = storedValues[key]
+        if (!storedItem) return 
 
         // Skip jika nilai null/undefined — item sudah dihapus
         if (storedItem.value === null || storedItem.value === undefined) return
@@ -582,8 +582,8 @@ const loadForm = async (id: number) => {
         checkTriggers(Number(key), formValues.value[Number(key)])
       })
 
-      if (!activeSection.value && formData.value?.template.sections.length > 0) {
-        activeSection.value = formData.value.template.sections[0].id
+      if (!activeSection.value && (formData.value?.template.sections.length ?? 0) > 0) {
+        activeSection.value = formData.value!.template.sections[0]!.id
         storage.saveActiveSection(activeSection.value)
       }
       storage.clearExpired()
@@ -999,7 +999,7 @@ onMounted(async () => { await loadForm(inspectionId.value) })
           <InspectionSection
             v-if="activeSection === section.id"
             :section="section"
-            :inspectionId="vehicleInfo?.id"
+            :inspectionId="vehicleInfo?.id ?? 0"
             :values="formValues"
             :errors="formErrors"
             :metadata="metadata"
@@ -1092,6 +1092,7 @@ onMounted(async () => { await loadForm(inspectionId.value) })
     :damage-items="emptyDamageItems"
     :values="formValues"
     :metadata="metadata"
+    :inspectionId = inspectionId
     :nested-values="nestedValues"
     @close="showDamageModal = false"
     @save-item="handleDamageItemSave"

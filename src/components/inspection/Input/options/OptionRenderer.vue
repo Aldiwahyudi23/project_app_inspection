@@ -9,7 +9,7 @@
       :inspectionId="inspectionId"
       :model-value="localImageValue"
       :error="localImageError"
-      :selected-option-value="optionValue" 
+      :selected-option-value="resolvedOptionValue"
       @update:model-value="handleImageUpdate"
       @update:error="handleImageError"
       @update:upload-status="handleUploadStatus"
@@ -35,6 +35,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import TextareaInput from '../TextareaInput.vue'
 import ImageInput from '../ImageInput.vue'
+import type { FormItem } from '../../../../types/formInspection';
 
 const props = defineProps<{
   option: any
@@ -71,30 +72,46 @@ const localImageError    = ref(props.nestedError?.image    || '')
 const _isCleaningUp = ref(false)
 
 /* =========================
+   RESOLVED OPTION VALUE
+   - Kalau aggregated → kirim originalOptions join koma
+     supaya backend bisa resolve settings yang tepat
+     contoh: "NOT OK,Repaint"
+   - Kalau single → pakai optionValue langsung
+     contoh: "NOT OK"
+========================= */
+const resolvedOptionValue = computed<string | null>(() => {
+  if (props.option.isAggregated && Array.isArray(props.option.originalOptions)) {
+    // Filter hanya original options yang punya show_image = true
+    // agar backend tidak perlu cek option yang tidak relevan
+    const optionsWithImage = props.option.originalOptions.filter((_val: string) => {
+      // Cek dari data asli option jika tersedia
+      // Fallback: kirim semua original options, backend yang filter
+      return true
+    })
+    return optionsWithImage.join(',')
+  }
+  return props.optionValue ?? null
+})
+
+/* =========================
    ACTIVE DAMAGE IDS
    - Dihitung dari nestedValue.damage_ids
    - Di-filter hanya yang masih valid di option.damage_ids saat ini
 ========================= */
 const validDamageIds = computed<number[]>(() => {
-  // Kumpulkan semua id yang valid dari option yang sedang aktif
   return (props.option.damage_ids || []).map((d: any) => Number(d.id))
 })
 
 const activeDamageIds = computed<number[]>(() => {
   const saved = props.nestedValue?.damage_ids
   if (!saved || !Array.isArray(saved)) return []
-  
-  // Filter: hanya tampilkan damage yang ID-nya masih ada di option saat ini
-  // Ini otomatis membersihkan damage dari option yang sudah di-unselect
   return saved.filter(id => validDamageIds.value.includes(Number(id)))
 })
 
 /* =========================
    WATCH: option.damage_ids BERUBAH
-   → Ketika option di-unselect (misal option A di-uncheck),
-     damage_ids di aggregatedOption berkurang.
-     Kita perlu emit ke parent agar nestedValue.damage_ids ikut dibersihkan,
-     sehingga data yang tersimpan tidak mengandung damage dari option yang sudah hilang.
+   → Ketika option di-unselect, damage_ids di aggregatedOption berkurang.
+     Emit ke parent agar nestedValue.damage_ids ikut dibersihkan.
 ========================= */
 watch(
   () => props.option.damage_ids,
@@ -106,41 +123,30 @@ watch(
     const filtered = saved.filter(id => validIds.includes(Number(id)))
 
     if (filtered.length !== saved.length) {
-      // IDs yang dipilih user tapi sudah tidak valid lagi
       const removedIds = saved.filter(id => !validIds.includes(Number(id)))
 
-      // Cari value teks dari oldDamageIds (SEBELUM berubah)
-      // karena di newDamageIds damage dari option yang di-unselect sudah tidak ada
       const removedDamageTexts = (oldDamageIds || [])
         .filter((d: any) => removedIds.includes(Number(d.id)))
         .map((d: any) => d.value?.trim())
         .filter(Boolean)
 
-      // Ambil nilai textarea saat ini — pakai props langsung sebagai source of truth
-      // lebih reliable daripada localTextareaValue yang bisa ada timing issue
       const currentTextarea = props.nestedValue?.textarea ?? localTextareaValue.value ?? ''
 
-      // Hitung teks yang sudah dibersihkan dari damage yang tidak valid
       const cleanedText = removedDamageTexts.length > 0 && currentTextarea
         ? removeRemovedDamagesFromText(currentTextarea, removedDamageTexts)
         : currentTextarea
 
       const textareaChanged = cleanedText !== currentTextarea
 
-      // Set flag SEBELUM emit apapun agar watch nestedValue tidak
-      // meng-override localTextareaValue yang akan kita set
       _isCleaningUp.value = true
 
-      // Selalu emit damage_ids yang sudah difilter
       emit('update:nestedValue', props.optionValue, 'damage_ids', filtered)
 
-      // Emit textarea hanya jika ada perubahan
       if (textareaChanged) {
         localTextareaValue.value = cleanedText
         emit('update:nestedValue', props.optionValue, 'textarea', cleanedText)
       }
 
-      // Reset flag setelah Vue selesai flush semua watcher dari emit di atas
       nextTick(() => { _isCleaningUp.value = false })
     }
   },
@@ -153,14 +159,11 @@ watch(
  */
 const removeRemovedDamagesFromText = (text: string, removedValues: string[]): string => {
   if (!text) return text
-
-  // Split teks berdasarkan koma, filter yang removed, join kembali
   const parts = text
     .split(',')
     .map(t => t.trim())
     .filter(t => t.length > 0)
     .filter(t => !removedValues.includes(t))
-
   return parts.join(', ')
 }
 
@@ -169,9 +172,6 @@ const removeRemovedDamagesFromText = (text: string, removedValues: string[]): st
 ========================= */
 watch(() => props.nestedValue, (newVal) => {
   if (!newVal) return
-
-  // Jika sedang proses cleanup damage, skip update textarea dari parent
-  // untuk mencegah nilai lama menimpa hasil cleanup
   if (!_isCleaningUp.value) {
     if (newVal.textarea !== undefined) localTextareaValue.value = newVal.textarea
   }
@@ -220,7 +220,8 @@ const handleImageError = (error: string) => {
    MAPPINGS
 ========================= */
 const mappedTextareaSettings = computed(() => ({
-  id: `${props.parentItemId}_${props.optionValue}_textarea`,
+  // id: `${props.parentItemId}_${props.optionValue}_textarea`,
+  id: props.parentItemId,
   inspection_item_id: props.inspectionItemId,
   inspection_item: {
     name: props.option.label
@@ -237,10 +238,11 @@ const mappedTextareaSettings = computed(() => ({
     damage_ids: props.option.damage_ids || [],
     damage_category_id: props.option.damage_category_id
   }
-}))
+})as unknown as FormItem)
 
 const mappedImageSettings = computed(() => ({
-  id: `${props.parentItemId}_${props.optionValue}_image`,
+  // id: `${props.parentItemId}_${props.optionValue}_image`,
+  id: props.parentItemId,
   inspection_item_id: props.inspectionItemId,
   inspection_item: {
     name: props.option.label
@@ -255,5 +257,5 @@ const mappedImageSettings = computed(() => ({
     compression_quality: props.option.compression_quality,
     allowed_mimes: props.option.allowed_mimes
   }
-}))
+})as unknown as FormItem)
 </script>

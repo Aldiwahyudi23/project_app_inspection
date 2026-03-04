@@ -110,19 +110,7 @@
                         >
                           {{ item.inspection_item.name }}
                         </p>
-                        <!-- Icon info jika ada description -->
-                        <!-- <button
-                          v-if="item.inspection_item.description"
-                          class="flex-shrink-0 w-4 h-4 text-gray-400 hover:text-blue-500 transition-colors"
-                          @click.stop="openDescription(item)"
-                          title="Lihat deskripsi"
-                        >
-                          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </button> -->
                       </div>
-                      <!-- <span v-if="item.is_required" class="text-xs text-red-500">Wajib diisi</span> -->
                     </div>
                   </div>
                   <svg
@@ -142,6 +130,7 @@
                         :item="item"
                         :model-value="getLocalValue(item.id)"
                         :metadata="metadata"
+                        :inspectionId="inspectionId"
                         :error="localErrors[item.id]"
                         :nested-values="localNestedValues[item.id]"
                         :image-nested-values="localImageNestedValues[item.id] ?? null"
@@ -149,7 +138,7 @@
                         @update:model-value="handleLocalInputChange(item.id, $event)"
                         @update:error="handleLocalError(item.id, $event)"
                         @update:nested-value="(optVal, field, val) => handleLocalNestedValue(item.id, optVal, field, val)"
-                        @update:nested-error="(optVal, field, err) => handleLocalError(item.id, err)"
+                        @update:nested-error="(_optVal, _field, err) => handleLocalError(item.id, err)"
                         @update:image-nested-value="(field, val) => handleLocalImageNestedValue(item.id, field, val)"
                       />
 
@@ -215,6 +204,7 @@ const props = defineProps<{
   damageItems: any[]
   values: Record<number, any>
   metadata: Metadata
+  inspectionId: number
   nestedValues: Record<string | number, any>
 }>()
 

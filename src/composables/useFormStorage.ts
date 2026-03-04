@@ -123,7 +123,8 @@ export function useFormStorage(inspectionId: number) {
     
     // Hapus item yang sudah expired
     Object.keys(formValues.value).forEach(key => {
-      if (now - formValues.value[key].updated_at > oneDay) {
+      const item = formValues.value[key]
+      if (item && now - item.updated_at > oneDay) {
         delete formValues.value[key]
         hasChanges = true
       }

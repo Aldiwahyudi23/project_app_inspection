@@ -41,6 +41,7 @@ export interface Option {
   value: string;
   settings: OptionSetting;
   show_image: boolean;
+  show_damage?: boolean ;
   show_textarea: boolean;
   image_is_required: boolean;
   textarea_is_required: boolean;
@@ -148,6 +149,15 @@ export interface FormItem {
     component: string;
     props: any;
   };
+   // Runtime-only flags (tidak dari API)
+  _isFeatureItem?: boolean
+  _isForceVisible?: boolean
+  _isTriggeredItem?: boolean
+  _isTriggered?: boolean
+  _hasVehicleFilter?: boolean
+  _isVisibleByVehicle?: boolean
+  _isDamageItem?: boolean
+  _isNativelyHidden?: boolean
 }
 
 export interface Section {
@@ -178,6 +188,7 @@ export interface VehicleAttribute {
   fuel_type: string;
   transmission: string;
   is_active: boolean;
+  features?: string[]
 }
 
 export interface Inspection {

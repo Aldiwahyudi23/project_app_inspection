@@ -4,7 +4,11 @@ export type JobStatus = 'draft' | 'process' | 'approved' | 'rejected' | 'complet
 export type JobMenu = 'draft' | 'process' | 'completed';
 
 // Status untuk proses update (dari available_next_statuses)
-export type NextJobStatus = 'accepted' | 'on_the_way' | 'arrived' | 'in_progress' | 'completed' | 'cancelled' | 'rejected';
+export type NextJobStatus = 
+  'accepted' | 'on_the_way' | 'arrived' | 'in_progress' | 
+  'completed' | 'cancelled' | 'rejected' | 'pending' | 
+  'paused' | 'under_review' | 'revision' | 'approved' | 
+  'draft' | 'process'
 
 export interface JobStatusInfo {
   value: JobStatus;
@@ -144,56 +148,22 @@ export interface StatusOption {
 
 // Mapping untuk menampilkan status dengan properti yang sesuai
 export const STATUS_OPTIONS: Record<NextJobStatus, StatusOption> = {
-  accepted: {
-    value: 'accepted',
-    label: 'Terima',
-    color: 'success',
-    icon: 'M5 13l4 4L19 7',
-    description: 'Menerima tugas inspeksi'
-  },
-  on_the_way: {
-    value: 'on_the_way',
-    label: 'Dalam Perjalanan',
-    color: 'info',
-    icon: 'M13 7l4 4m0 0l-4 4m4-4H3',
-    description: 'Dalam perjalanan ke lokasi'
-  },
-  arrived: {
-    value: 'arrived',
-    label: 'Tiba di Lokasi',
-    color: 'info',
-    icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z',
-    description: 'Sudah tiba di lokasi inspeksi'
-  },
-  in_progress: {
-    value: 'in_progress',
-    label: 'Sedang Berjalan',
-    color: 'warning',
-    icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
-    description: 'Inspeksi sedang berlangsung'
-  },
-  completed: {
-    value: 'completed',
-    label: 'Selesai',
-    color: 'success',
-    icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-    description: 'Inspeksi selesai'
-  },
-  cancelled: {
-    value: 'cancelled',
-    label: 'Batalkan',
-    color: 'danger',
-    icon: 'M6 18L18 6M6 6l12 12',
-    description: 'Membatalkan inspeksi'
-  },
-  rejected: {
-    value: 'rejected',
-    label: 'Tolak',
-    color: 'danger',
-    icon: 'M6 18L18 6M6 6l12 12',
-    description: 'Menolak tugas inspeksi'
-  }
-};
+  accepted: { value: 'accepted', label: 'Terima', color: 'success', icon: 'M5 13l4 4L19 7' },
+  on_the_way: { value: 'on_the_way', label: 'Dalam Perjalanan', color: 'info', icon: 'M13 7l4 4m0 0l-4 4m4-4H3' },
+  arrived: { value: 'arrived', label: 'Tiba di Lokasi', color: 'info', icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z' },
+  in_progress: { value: 'in_progress', label: 'Sedang Berjalan', color: 'warning', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+  completed: { value: 'completed', label: 'Selesai', color: 'success', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+  cancelled: { value: 'cancelled', label: 'Batalkan', color: 'danger', icon: 'M6 18L18 6M6 6l12 12' },
+  rejected: { value: 'rejected', label: 'Tolak', color: 'danger', icon: 'M6 18L18 6M6 6l12 12' },
+  // ← tambahkan yang kurang:
+  pending: { value: 'pending', label: 'Tunda', color: 'warning', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+  paused: { value: 'paused', label: 'Jeda', color: 'gray', icon: 'M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+  under_review: { value: 'under_review', label: 'Tinjau', color: 'info', icon: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+  revision: { value: 'revision', label: 'Revisi', color: 'danger', icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z' },
+  approved: { value: 'approved', label: 'Setujui', color: 'success', icon: 'M5 13l4 4L19 7' },
+  draft: { value: 'draft', label: 'Draft', color: 'gray', icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z' },
+  process: { value: 'process', label: 'Proses', color: 'warning', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+}
 
 // Helper function untuk mendapatkan option status
 export function getStatusOption(status: NextJobStatus): StatusOption {

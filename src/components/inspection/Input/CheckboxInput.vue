@@ -123,11 +123,13 @@ const props = defineProps<{
   nestedErrors?: any
 }>()
 
+type NestedField = 'textarea' | 'image' | 'damage_ids'
+
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string[]): void
   (e: 'update:error', error: string): void
-  (e: 'update:nestedValue', optionValue: string, field: 'textarea' | 'image', value: any): void
-  (e: 'update:nestedError', optionValue: string, field: 'textarea' | 'image', error: string): void
+  (e: 'update:nestedValue', optionValue: string, field: NestedField, value: any): void
+  (e: 'update:nestedError', optionValue: string, field: NestedField, error: string): void
   (e: 'update:uploadStatus', status: { hasUploading: boolean; hasFailed: boolean }): void
 }>()
 
@@ -331,11 +333,11 @@ const handleChange = (option: any) => {
    NESTED VALUES HANDLERS
 ========================= */
 
-const handleNestedValueUpdate = (optionValue: string, field: 'textarea' | 'image', value: any) => {
+const handleNestedValueUpdate = (_optionValue: string, field: NestedField, value: any) => {
   emit('update:nestedValue', 'aggregated', field, value)
 }
 
-const handleNestedErrorUpdate = (optionValue: string, field: 'textarea' | 'image', error: string) => {
+const handleNestedErrorUpdate = (_optionValue: string, field: NestedField, error: string) => {
   emit('update:nestedError', 'aggregated', field, error)
 }
 

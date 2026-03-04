@@ -6,8 +6,8 @@
       :value="modelValue"
       @input="handleInput"
       @blur="validate"
-      :min="settings.min_date"
-      :max="settings.max_date"
+      :min="settings.min_date ?? undefined"
+      :max="settings.max_date ?? undefined"
       :placeholder="settings.placeholder || 'Pilih tanggal'"
       :class="[
         'w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors',

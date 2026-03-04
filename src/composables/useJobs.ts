@@ -1,6 +1,5 @@
 // composables/useJobs.ts
-import { ref, reactive, computed, watch } from 'vue';
-import type { Ref } from 'vue';
+import { reactive, computed, watch } from 'vue';
 import jobService from '../services/jobService';
 import type { 
   JobState, 
@@ -9,8 +8,6 @@ import type {
   PaginatedData,
   JobQueryParams,
   JobStatus,
-  CompletedJobFilters,
-  CompletedJobStatistics
 } from '../types/job';
 
 export function useJobs() {

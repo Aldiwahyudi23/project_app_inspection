@@ -18,7 +18,7 @@
           </div>
         </div>
         <button
-          @click="removeFile(index)"
+          @click="removeFile(Number(index))"
           class="p-1 hover:bg-gray-200 rounded-full"
         >
           <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -40,7 +40,7 @@
         ref="fileInput"
         type="file"
         :accept="allowedMimesString"
-        :multiple="settings.max_files > 1"
+        :multiple="(settings.max_files ?? 1) > 1"
         @change="handleFileSelect"
         class="hidden"
       />
@@ -53,7 +53,7 @@
         Klik atau drag untuk upload file
       </p>
       <p class="text-xs text-gray-400 mt-1">
-        {{ settings.max_files > 1 ? `Maksimal ${settings.max_files} file` : 'Maksimal 1 file' }}
+        {{ (settings.max_files ?? 1) > 1 ? `Maksimal ${settings.max_files} file` : 'Maksimal 1 file' }}
         • {{ formatFileSize(settings.max_size || 2048) }}
       </p>
     </div>

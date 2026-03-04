@@ -219,7 +219,6 @@ const router = useRouter();
 const {
   state,
   activeMenuItems,
-  activeMenuPagination,
   activeMenuLoading,
   hasMoreData,
   draftCount,
@@ -361,8 +360,9 @@ let observer: IntersectionObserver | null = null;
 const setupIntersectionObserver = () => {
   observer = new IntersectionObserver(
     (entries) => {
-      if (entries[0].isIntersecting && hasMoreData.value && !activeMenuLoading.value) {
-        loadMore();
+      const entry = entries[0]
+      if (entry?.isIntersecting && hasMoreData.value && !activeMenuLoading.value) {
+        loadMore()
       }
     },
     { threshold: 0.1, rootMargin: '100px' }

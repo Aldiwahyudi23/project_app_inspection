@@ -1,7 +1,5 @@
 // src/services/formSinspectionervice.ts
 import api from './api'
-import type { FormInspectionData } from '../types/formInspection'
-import axios from 'axios'
 
 export const getFormInspection = async (id: number) => {
   const response = await api.get(`/app-inspection/form-inspection/start/${id}`)

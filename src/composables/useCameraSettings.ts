@@ -1,5 +1,5 @@
 // composables/useCameraSettings.ts
-import { ref, watch, onMounted } from 'vue'
+import { ref} from 'vue'
 import type { CameraSettings, CameraSource } from '../types/formInspection'
 
 const STORAGE_KEY = 'inspection_camera_settings'

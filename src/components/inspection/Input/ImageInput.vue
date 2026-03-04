@@ -14,7 +14,7 @@
       </svg>
       <p class="text-sm text-gray-600 mt-2">Klik untuk upload gambar</p>
       <p class="text-xs text-gray-400 mt-1">
-        {{ settings.max_files > 1 ? `Maksimal ${settings.max_files} gambar` : 'Maksimal 1 gambar' }}
+        {{ (settings.max_files ?? 1) > 1 ? `Maksimal ${settings.max_files} gambar` : 'Maksimal 1 gambar' }}
       </p>
     </div>
 
@@ -93,7 +93,7 @@
       >
         <!-- Loading overlay -->
         <div
-          v-if="uploadingIndexes.has(index)"
+          v-if="uploadingIndexes.has(Number(index))"
           class="absolute inset-0 z-10 bg-black/50 flex flex-col items-center justify-center gap-1"
         >
           <svg class="w-6 h-6 text-white animate-spin" fill="none" viewBox="0 0 24 24">
@@ -105,14 +105,14 @@
 
         <!-- Failed overlay -->
         <div
-          v-else-if="failedIndexes.has(index)"
+          v-else-if="failedIndexes.has(Number(index))"
           class="absolute inset-0 z-10 bg-black/60 flex flex-col items-center justify-center gap-1 p-1"
         >
           <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12A9 9 0 113 12a9 9 0 0118 0z"/>
           </svg>
           <button
-            @click.stop="retryUpload(index)"
+            @click.stop="retryUpload(Number(index))"
             class="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full"
           >
             Retry
@@ -123,10 +123,10 @@
           :src="getImgSrc(image)"
           class="w-full h-full object-cover cursor-pointer"
           style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;"
-          @click="openPreview(index)"
+          @click="openPreview(Number(index))"
         />
         <button
-          @click="removeImage(index)"
+          @click="removeImage(Number(index))"
           class="absolute top-1 right-1 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white text-xs shadow hover:bg-red-600"
           style="z-index:2;"
         >✕</button>
@@ -138,7 +138,7 @@
       ref="fileInput"
       type="file"
       :accept="allowedMimesString"
-      :multiple="settings.max_files > 1"
+      :multiple="(settings.max_files ?? 1) > 1"
       @change="handleFileSelect"
       class="hidden"
     />
@@ -153,6 +153,7 @@
     <div v-if="settings?.show_option === true && options.length > 0 && hasImages" class="mt-4 pt-3 border-t border-gray-200">
       <RadioInput
         :item="radioItem"
+        :inspectionId="resolvedInspectionId ?? 0"
         :model-value="localSelectedOption"
         :error="optionError"
         :nested-values="localRadioNestedValues"
@@ -270,6 +271,8 @@ const radioItem = computed(() => ({
   is_active: true,
   is_visible: true,
   is_required: false,
+  current_result: null,  
+  ui_config: null,   
   inspection_item: {
     id: props.item.inspection_item_id,
     name: `Pilihan ${props.item.inspection_item?.name || 'Gambar'}`,
@@ -281,7 +284,7 @@ const radioItem = computed(() => ({
     layout: settings.value?.layout || 'horizontal'
   },
   validation_rules: []
-}))
+})as unknown as FormItem)
 
 const handleOptionSelect = (value: any) => {
   localSelectedOption.value = value
@@ -289,7 +292,7 @@ const handleOptionSelect = (value: any) => {
   emit('update:imageNestedValue', 'selectedOption', value)
 }
 const handleOptionError = (err: string) => { optionError.value = err }
-const handleRadioNestedValueUpdate = (optionValue: string, field: 'textarea' | 'image', value: any) => {
+const handleRadioNestedValueUpdate = (optionValue: string, field: 'textarea' | 'image' |'damage_ids', value: any) => {
   if (!localRadioNestedValues.value[optionValue]) localRadioNestedValues.value[optionValue] = {}
   localRadioNestedValues.value[optionValue][field] = value
   emit('update:imageNestedValue', `${optionValue}__${field}`, value)

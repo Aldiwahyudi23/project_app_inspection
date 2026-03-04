@@ -265,7 +265,7 @@ const sortedItems = computed(() =>
 )
 
 const isItemDisabled = (item: any): boolean => {
-  if (item._isFeatureItem)   
+  if (item._isFeatureItem) return false // Item fitur tidak pernah disabled 
   if (item._hasVehicleFilter && !item._isVisibleByVehicle) return true
   if (item._isTriggeredItem  && !item._isTriggered)        return true
   return false
