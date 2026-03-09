@@ -1,20 +1,19 @@
 <!-- components/inspection/InspectionSection.vue -->
 <template>
-  <div class="space-y-4">
-    <div v-if="displayedItems.length > 0" class="space-y-4">
+  <div class="space-y-2">
+    <div v-if="displayedItems.length > 0" class="space-y-2">
       <div
         v-for="item in sortedItems"
         :key="item.id"
         :id="`item-${item.id}`"
-        class="bg-white rounded-xl border border-gray-200 p-4"
+        class="bg-white rounded-xl border border-gray-200 p-3"
         :class="{ 'opacity-50': !item.is_active }"
       >
         <!-- Item Header -->
-        <div class="mb-3">
+        <div class="mb-2">
           <div class="flex items-start justify-between">
             <div class="flex-1 min-w-0">
               <div class="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                <!-- Nama item — klik → modal description (jika ada) -->
                 <button
                   class="text-left font-medium text-gray-800 text-sm hover:text-blue-600 transition-colors"
                   :class="item.inspection_item.description ? 'underline underline-offset-2 decoration-dotted decoration-gray-400' : 'cursor-default'"
@@ -25,36 +24,16 @@
 
                 <span v-if="item.is_required" class="text-red-500 text-sm leading-none">*</span>
 
-                <!-- Icon info jika ada description -->
-                <!-- <button
-                  v-if="item.inspection_item.description"
-                  class="w-4 h-4 text-gray-400 hover:text-blue-500 transition-colors flex-shrink-0"
-                  @click="openDesc(item)"
-                  title="Lihat deskripsi"
-                >
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </button> -->
-
                 <span v-if="!item.is_active" class="text-xs bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded-full">
                   Tidak Aktif
                 </span>
-
-                <!-- Badge untuk item damage yang force-visible -->
-                <!-- <span
-                  v-if="item._isForceVisible && item._isDamageItem"
-                  class="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full"
-                >
-                  ⚠ Kerusakan
-                </span> -->
               </div>
             </div>
 
-            <!-- Tombol Hapus: muncul jika item sudah ada data di local -->
+            <!-- Tombol Hapus -->
             <button
               v-if="hasLocalValue(item.id)"
-              class="flex-shrink-0 ml-3 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              class="flex-shrink-0 ml-2 w-4 h-4 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
               title="Hapus data item ini"
               @click="confirmDelete(item)"
             >
@@ -71,14 +50,10 @@
           :metadata="metadata"
           :inspectionId="props.inspectionId"
           :error="errors[item.id]"
-          :nested-values="nestedValues[item.id]"
-          :image-nested-values="getImageNestedValues(item.id)"
           :disabled="isItemDisabled(item)"
           @update:model-value="handleInputChange(item.id, $event)"
           @update:error="handleError(item.id, $event)"
-          @update:nested-value="(optionValue, field, value) => handleNestedValue(item.id, optionValue, field, value)"
-          @update:nested-error="(optionValue, field, error) => handleNestedError(item.id, optionValue, field, error)"
-          @update:image-nested-value="(field, value) => handleImageNestedValue(item.id, field, value)"
+          @update:valid="handleValid(item.id, $event)"
           @update:upload-status="(s) => handleUploadStatus(item.id, s)"
         />
       </div>
@@ -156,48 +131,45 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
 import type { Section, Metadata, FormItem } from '../../types/formInspection'
-import DynamicInput from './Input/DynamicInput.vue'
+import DynamicInput         from './Input/DynamicInput.vue'
 import ItemDescriptionModal from './ItemDescriptionModal.vue'
-import { deleteInspectionItem } from '../../services/formInspectionService'
+import { useImageUploadStore } from '../../stores/useImageUploadStore'
 
 const props = defineProps<{
   section: Section & {
     items: (FormItem & {
       _isVisibleByVehicle?: boolean
-      _hasVehicleFilter?: boolean
-      _isTriggeredItem?: boolean
-      _isTriggered?: boolean
-      _finalVisibility?: boolean
-      _isNativelyHidden?: boolean
-      _isDamageItem?: boolean
-      _isForceVisible?: boolean
+      _hasVehicleFilter?:   boolean
+      _isTriggeredItem?:    boolean
+      _isTriggered?:        boolean
+      _finalVisibility?:    boolean
+      _isNativelyHidden?:   boolean
+      _isDamageItem?:       boolean
+      _isForceVisible?:     boolean
+      _isFeatureItem?:      boolean
     })[]
   }
-  inspectionId: number,
-  values: Record<number, any>
-  errors: Record<number, string>
-  metadata: Metadata
-  nestedValues: Record<string | number, any>
+  inspectionId: number
+  values:       Record<number, any>
+  errors:       Record<number, string>
+  metadata:     Metadata
   vehicleAttr?: any
   showHiddenItems?: boolean
-  triggeredItems?: Record<number, boolean>
+  triggeredItems?:  Record<number, boolean>
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:value',            itemId: number, value: any): void
-  (e: 'update:error',            itemId: number, error: string): void
-  (e: 'update:nestedValue',      itemId: number, optionValue: string, field: string, value: any): void
-  (e: 'update:nestedError',      itemId: number, optionValue: string, field: string, error: string): void
-  (e: 'update:imageNestedValue', itemId: number, field: string, value: any): void
-  (e: 'delete:item',             itemId: number): void
+  (e: 'update:value',        itemId: number, value: any): void
+  (e: 'update:error',        itemId: number, error: string): void
+  (e: 'update:valid',        itemId: number, valid: boolean): void
+  (e: 'delete:item',         itemId: number, inspectionItemId: number): void
   (e: 'update:uploadStatus', itemId: number, status: { hasUploading: boolean; hasFailed: boolean }): void
 }>()
 
-// Tambah handler proxy
-const handleUploadStatus = (itemId: number, status: { hasUploading: boolean; hasFailed: boolean }) =>
-  emit('update:uploadStatus', itemId, status)
+// ── Store ─────────────────────────────────────────────────────
+const imageStore = useImageUploadStore()
 
-// ─── Description Modal ──────────────────────────────────────
+// ── Description Modal ─────────────────────────────────────────
 const descModal = reactive({ show: false, name: '', description: '' })
 
 const openDesc = (item: any) => {
@@ -207,92 +179,81 @@ const openDesc = (item: any) => {
   descModal.show        = true
 }
 
-// ─── Delete Confirm ─────────────────────────────────────────
-const deleteConfirm = reactive({ show: false, itemId: 0, itemName: '', loading: false })
+// ── Delete Confirm ────────────────────────────────────────────
+const deleteConfirm = reactive({
+  show: false, itemId: 0, inspectionItemId: 0, itemName: '', loading: false,
+})
 
 const confirmDelete = (item: any) => {
-  deleteConfirm.itemId   = item.id
-  deleteConfirm.itemName = item.inspection_item.name
-  deleteConfirm.show     = true
+  deleteConfirm.itemId           = item.id
+  deleteConfirm.inspectionItemId = item.inspection_item_id
+  deleteConfirm.itemName         = item.inspection_item.name
+  deleteConfirm.show             = true
 }
 
-const executeDelete = async () => {
-  const itemIdToDelete = deleteConfirm.itemId
-  deleteConfirm.loading = true
+const executeDelete = () => {
+  const itemId           = deleteConfirm.itemId
+  const inspectionItemId = deleteConfirm.inspectionItemId
 
-  try {
-    // Hit API delete — gunakan props.inspectionId (dari vehicleInfo?.id)
-    await deleteInspectionItem(props.inspectionId, itemIdToDelete)
-  } catch (e) {
-    console.error('Gagal hapus dari server:', e)
-    // Tetap lanjut hapus lokal meskipun API gagal (optional — bisa di-adjust)
-  } finally {
-    deleteConfirm.show    = false
-    deleteConfirm.loading = false
-    deleteConfirm.itemId  = 0
-    deleteConfirm.itemName = ''
-    emit('delete:item', itemIdToDelete)
-  }
+  deleteConfirm.show              = false
+  deleteConfirm.loading           = false
+  deleteConfirm.itemId            = 0
+  deleteConfirm.inspectionItemId  = 0
+  deleteConfirm.itemName          = ''
+
+  imageStore.clearSection(itemId)
+  emit('delete:item', itemId, inspectionItemId)
 }
 
-// ─── Cek apakah item punya data lokal ───────────────────────
+// ── Helpers ───────────────────────────────────────────────────
 const hasLocalValue = (itemId: number): boolean => {
   const v = props.values[itemId]
   if (v === undefined || v === null || v === '') return false
   if (Array.isArray(v) && v.length === 0) return false
-  if (typeof v === 'object' && !Array.isArray(v)) {
-    if ('images' in v) return Array.isArray(v.images) ? v.images.length > 0 : !!v.images
-    if (Object.keys(v).length === 0) return false
-  }
+  if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) return false
+  const storeImages = imageStore.getImagesBySection(itemId)
+  if (storeImages.length > 0) return true
   return true
 }
 
-// ─── Filter item yang ditampilkan ───────────────────────────
-const displayedItems = computed(() => {
-  return props.section.items.filter(item => {
+// ── Visibility filter ─────────────────────────────────────────
+const displayedItems = computed(() =>
+  props.section.items.filter(item => {
     if (item._isFeatureItem)    return true
-    if (item._isForceVisible) return true
-    if (item._isTriggeredItem) return item._isTriggered === true
+    if (item._isForceVisible)   return true
+    if (item._isTriggeredItem)  return item._isTriggered === true
     if (item._hasVehicleFilter) return item._isVisibleByVehicle === true
-    if (item._isDamageItem) return false
+    if (item._isDamageItem)     return false
     if (item._isNativelyHidden) return props.showHiddenItems === true
     return true
   })
-})
+)
 
 const sortedItems = computed(() =>
   [...displayedItems.value].sort((a, b) => a.sort_order - b.sort_order)
 )
 
 const isItemDisabled = (item: any): boolean => {
-  if (item._isFeatureItem) return false // Item fitur tidak pernah disabled 
-  if (item._hasVehicleFilter && !item._isVisibleByVehicle) return true
-  if (item._isTriggeredItem  && !item._isTriggered)        return true
+  if (item._isFeatureItem)                                         return false
+  if (item._hasVehicleFilter && !item._isVisibleByVehicle)         return true
+  if (item._isTriggeredItem  && !item._isTriggered)                return true
   return false
 }
 
-// ─── Value helpers ──────────────────────────────────────────
-const getItemValue        = (itemId: number) => props.values[itemId]
-const getImageNestedValues = (itemId: number) => props.nestedValues[`img_${itemId}`] ?? null
+// ── Value helper ──────────────────────────────────────────────
+const getItemValue = (itemId: number) => props.values[itemId]
 
-// ─── Event proxies ──────────────────────────────────────────
-const handleInputChange      = (itemId: number, value: any) => emit('update:value', itemId, value)
-const handleError            = (itemId: number, error: string) => emit('update:error', itemId, error)
-const handleNestedValue      = (itemId: number, optionValue: string, field: string, value: any) =>
-  emit('update:nestedValue', itemId, optionValue, field, value)
-const handleNestedError      = (itemId: number, optionValue: string, field: string, error: string) =>
-  emit('update:nestedError', itemId, optionValue, field, error)
-const handleImageNestedValue = (itemId: number, field: string, value: any) =>
-  emit('update:imageNestedValue', itemId, field, value)
+// ── Event proxies ─────────────────────────────────────────────
+const handleInputChange  = (itemId: number, value: any)     => emit('update:value',  itemId, value)
+const handleError        = (itemId: number, error: string)  => emit('update:error',  itemId, error)
+const handleValid        = (itemId: number, valid: boolean) => emit('update:valid',  itemId, valid)
+const handleUploadStatus = (itemId: number, status: { hasUploading: boolean; hasFailed: boolean }) =>
+  emit('update:uploadStatus', itemId, status)
 </script>
 
 <style scoped>
-.confirm-enter-active,
-.confirm-leave-active { transition: opacity 0.2s ease; }
-.confirm-enter-active .relative,
-.confirm-leave-active .relative { transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.confirm-enter-from,
-.confirm-leave-to { opacity: 0; }
-.confirm-enter-from .relative,
-.confirm-leave-to .relative { transform: scale(0.9); }
+.confirm-enter-active, .confirm-leave-active { transition: opacity 0.2s ease; }
+.confirm-enter-active .relative, .confirm-leave-active .relative { transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.confirm-enter-from, .confirm-leave-to { opacity: 0; }
+.confirm-enter-from .relative, .confirm-leave-to .relative { transform: scale(0.9); }
 </style>

@@ -1,371 +1,308 @@
-<!-- components/inspection/inputs/CheckboxInput.vue -->
+<!-- components/inspection/Input/CheckboxInput.vue -->
+<script setup lang="ts">
+import { computed, watch } from 'vue'
+import OptionRenderer from './options/OptionRenderer.vue'
+import type { FormItem } from '../../../types/formInspection'
+
+export interface CheckboxFlatValue {
+  status:      string[]
+  note?:       string | null
+  image?:      any[]  | null
+  damage_ids?: number[]
+}
+
+const props = defineProps<{
+  item:         FormItem
+  inspectionId: number
+  modelValue:   CheckboxFlatValue | null
+  error?:       string
+  disabled?:    boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:modelValue',   value: CheckboxFlatValue | null): void
+  (e: 'update:error',        error: string): void
+  (e: 'update:valid',        valid: boolean): void
+  (e: 'update:uploadStatus', status: { hasUploading: boolean; hasFailed: boolean }): void
+}>()
+
+// ── Settings ──────────────────────────────────────────────────
+const settings     = computed(() => props.item.settings || {})
+const options      = computed<any[]>(() => settings.value.options || [])
+const isHorizontal = computed(() => settings.value.layout === 'horizontal')
+const minSelected  = computed<number | null>(() =>
+  settings.value.min_selected ? Number(settings.value.min_selected) : null
+)
+const maxSelected  = computed<number | null>(() =>
+  settings.value.max_selected ? Number(settings.value.max_selected) : null
+)
+
+// ── Current state ─────────────────────────────────────────────
+const currentStatuses = computed<string[]>(() => props.modelValue?.status ?? [])
+
+const currentNested = computed(() => {
+  if (!props.modelValue) return null
+  const { status, ...rest } = props.modelValue
+  return rest
+})
+
+const isChecked = (optionValue: string) => currentStatuses.value.includes(optionValue)
+
+// ── aggregateOptions — ikuti logika lama (Math.max, union) ────
+const aggregateOptions = (opts: any[]): any | null => {
+  if (opts.length === 0) return null
+
+  const withTextarea = opts.filter(o => o.show_textarea)
+  const withImage    = opts.filter(o => o.show_image)
+  const withDamage   = opts.filter(o => o.show_damage)
+
+  const result: any = {
+    label:               opts.map(o => o.label).join(' + '),
+    show_textarea:       withTextarea.length > 0,
+    show_image:          withImage.length > 0,
+    show_damage:         withDamage.length > 0,
+    textarea_is_required: false,
+    image_is_required:   false,
+    rich_text:           false,
+    allow_html:          false,
+    rows:                3,
+    max_length:          null,
+    min_length:          null,
+    max_size:            null,
+    max_files:           null,
+    max_width:           null,
+    max_height:          null,
+    compression_quality: null,
+    aspect_ratio:        null,
+    placeholder:         null,
+    damage_ids:          [],
+    damage_category_id:  null,
+    allowed_mimes:       [],
+  }
+
+  if (withTextarea.length > 0) {
+    result.textarea_is_required = withTextarea.some((o: any) => o.textarea_is_required === true)
+    result.rich_text             = withTextarea.some((o: any) => o.rich_text === true)
+    result.allow_html            = withTextarea.some((o: any) => o.allow_html === true)
+    result.placeholder           = withTextarea.find((o: any) => o.placeholder)?.placeholder ?? null
+
+    const rows = withTextarea.map((o: any) => o.rows).filter((v: any) => v != null && !isNaN(v))
+    if (rows.length) result.rows = Math.max(...rows)
+
+    const maxL = withTextarea.map((o: any) => o.max_length).filter((v: any) => v != null && !isNaN(v))
+    if (maxL.length) result.max_length = Math.max(...maxL)
+
+    const minL = withTextarea.map((o: any) => o.min_length).filter((v: any) => v != null && !isNaN(v))
+    if (minL.length) result.min_length = Math.max(...minL)
+  }
+
+  if (withImage.length > 0) {
+    result.image_is_required = withImage.some((o: any) => o.image_is_required === true)
+    result.aspect_ratio      = withImage.find((o: any) => o.aspect_ratio)?.aspect_ratio ?? null
+
+    const maxSize = withImage.map((o: any) => o.max_size).filter((v: any) => v != null && !isNaN(v))
+    if (maxSize.length) result.max_size = Math.max(...maxSize)
+
+    const maxFiles = withImage.map((o: any) => o.max_files).filter((v: any) => v != null && !isNaN(v))
+    if (maxFiles.length) result.max_files = Math.max(...maxFiles)
+
+    const maxW = withImage.map((o: any) => o.max_width).filter((v: any) => v != null && !isNaN(v))
+    if (maxW.length) result.max_width = Math.max(...maxW)
+
+    const maxH = withImage.map((o: any) => o.max_height).filter((v: any) => v != null && !isNaN(v))
+    if (maxH.length) result.max_height = Math.max(...maxH)
+
+    const comp = withImage.map((o: any) => o.compression_quality).filter((v: any) => v != null && !isNaN(v))
+    if (comp.length) result.compression_quality = Math.max(...comp)
+
+    const allMimes = withImage.flatMap((o: any) => o.allowed_mimes || [])
+    if (allMimes.length) result.allowed_mimes = [...new Set(allMimes)]
+  }
+
+  if (withDamage.length > 0) {
+    const allIds = withDamage.flatMap((o: any) => o.damage_ids || [])
+    result.damage_ids         = [...new Set(allIds)]
+    result.damage_category_id = withDamage.find((o: any) => o.damage_category_id)?.damage_category_id ?? null
+  }
+
+  return result
+}
+
+// ── Aggregated renderer option ────────────────────────────────
+const aggregatedRendererOption = computed(() => {
+  if (currentStatuses.value.length === 0) return null
+  const selectedOpts = options.value.filter(o => currentStatuses.value.includes(o.value))
+  const withContent  = selectedOpts.filter(o => o.show_image || o.show_textarea || o.show_damage)
+  if (withContent.length === 0) return null
+  return aggregateOptions(withContent)
+})
+
+// ── Validasi realtime ─────────────────────────────────────────
+const computeError = (statuses: string[], val: CheckboxFlatValue | null): string => {
+  if (props.item.is_required && statuses.length === 0)
+    return 'Field ini harus diisi'
+
+  if (minSelected.value != null && statuses.length > 0 && statuses.length < minSelected.value)
+    return `Pilih minimal ${minSelected.value} opsi`
+
+  if (maxSelected.value != null && statuses.length > maxSelected.value)
+    return `Pilih maksimal ${maxSelected.value} opsi`
+
+  if (statuses.length > 0 && aggregatedRendererOption.value) {
+    const opt = aggregatedRendererOption.value
+    if (opt.show_textarea && opt.textarea_is_required) {
+      const note = val?.note
+      if (!note || (typeof note === 'string' && note.trim() === ''))
+        return 'Catatan wajib diisi'
+      if (opt.min_length && typeof note === 'string' && note.length < Number(opt.min_length))
+        return `Minimal ${opt.min_length} karakter`
+      if (opt.max_length && typeof note === 'string' && note.length > Number(opt.max_length))
+        return `Maksimal ${opt.max_length} karakter`
+    }
+    if (opt.show_image && opt.image_is_required) {
+      const img = val?.image
+      if (!img || (Array.isArray(img) && img.length === 0))
+        return 'Gambar wajib diupload'
+    }
+  }
+
+  return ''
+}
+
+// Emit valid + error setiap modelValue berubah
+watch(() => props.modelValue, (val) => {
+  const statuses = val?.status ?? []
+  const errMsg   = computeError(statuses, val)
+  // Emit error hanya jika sudah ada interaksi (ada status atau error sebelumnya)
+  if (statuses.length > 0 || props.error) {
+    emit('update:error', errMsg)
+  }
+  emit('update:valid', errMsg === '')
+}, { deep: true, immediate: true })
+
+// ── Grid layout ───────────────────────────────────────────────
+const gridClass = computed(() => {
+  const count = options.value.length
+  if (count <= 2) return 'grid grid-cols-2 gap-2'
+  if (count === 3) return 'grid grid-cols-3 gap-2'
+  return 'grid grid-cols-3 gap-2'
+})
+
+// ── Handlers ─────────────────────────────────────────────────
+const handleToggle = (option: any) => {
+  if (props.disabled) return
+
+  const current = [...currentStatuses.value]
+  const idx     = current.indexOf(option.value)
+  let newStatuses: string[]
+
+  if (idx >= 0) {
+    newStatuses = current.filter(v => v !== option.value)
+  } else {
+    if (maxSelected.value != null && current.length >= maxSelected.value) return
+    newStatuses = [...current, option.value]
+  }
+
+  // Apakah option tersisa masih punya renderer?
+  const newSelected      = options.value.filter(o => newStatuses.includes(o.value))
+  const stillHasRenderer = newSelected.some(o => o.show_image || o.show_textarea || o.show_damage)
+
+  const newVal: CheckboxFlatValue = {
+    status:     newStatuses,
+    note:       stillHasRenderer ? (props.modelValue?.note       ?? null) : null,
+    image:      stillHasRenderer ? (props.modelValue?.image      ?? null) : null,
+    damage_ids: stillHasRenderer ? (props.modelValue?.damage_ids ?? [])   : [],
+  }
+
+  emit('update:modelValue', newVal)
+  const errMsg = computeError(newStatuses, newVal)
+  emit('update:error', errMsg)
+  emit('update:valid',  errMsg === '')
+}
+
+const handleRendererValue = (value: { note?: any; image?: any; damage_ids?: number[] }) => {
+  const newVal: CheckboxFlatValue = {
+    status:     currentStatuses.value,
+    note:       value.note       ?? null,
+    image:      value.image      ?? null,
+    damage_ids: value.damage_ids ?? [],
+  }
+  emit('update:modelValue', newVal)
+  const errMsg = computeError(currentStatuses.value, newVal)
+  emit('update:error', errMsg)
+  emit('update:valid',  errMsg === '')
+}
+</script>
+
 <template>
-  <div class="space-y-3">
+  <div class="space-y-2">
 
-    <!-- =========================
-         OPTIONS (TAMPILAN TETAP SEPERTI AWAL)
-    ========================== -->
-    <div
-      :class="[
-        isHorizontal
-          ? 'flex flex-wrap gap-3'
-          : 'space-y-2'
-      ]"
-    >
+    <!-- Option list -->
+    <div :class="isHorizontal ? gridClass : 'space-y-2'">
+      <div v-for="option in options" :key="option.value">
 
-      <label
-        v-for="option in options"
-        :key="option.value"
-        class="cursor-pointer"
-      >
-
-        <!-- ================= HORIZONTAL (Button Style) ================= -->
-        <div
+        <!-- Horizontal pill -->
+        <button
           v-if="isHorizontal"
-          @click="handleChange(option)"
+          type="button"
+          :disabled="disabled"
+          @click="handleToggle(option)"
           :class="[
-            'px-4 py-2 rounded-lg border text-sm font-medium transition-all',
+            'w-full text-center px-3 py-2 rounded-lg border text-sm font-medium transition-all',
             isChecked(option.value)
               ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+            disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
           ]"
         >
           {{ option.label }}
-        </div>
+        </button>
 
-        <!-- ================= VERTICAL (Classic Checkbox) ================= -->
-        <div
+        <!-- Vertical checkbox -->
+        <label
           v-else
-          class="flex items-center space-x-3"
+          class="flex items-center space-x-3 cursor-pointer"
+          :class="{ 'opacity-50 cursor-not-allowed': disabled }"
+          @click.prevent="handleToggle(option)"
         >
-          <input
-            type="checkbox"
-            :checked="isChecked(option.value)"
-            @change="handleChange(option)"
-            class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-          />
+          <div
+            class="w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all"
+            :class="isChecked(option.value) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'"
+          >
+            <svg v-if="isChecked(option.value)" class="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 12 12">
+              <path d="M10 3L5 8.5 2 5.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+          </div>
+          <span class="text-sm font-medium text-gray-700">{{ option.label }}</span>
+        </label>
 
-          <span class="text-sm font-medium text-gray-700">
-            {{ option.label }}
-          </span>
-        </div>
-
-      </label>
-
+      </div>
     </div>
 
-    <!-- =========================
-         OPTION RENDERER - SATU SAJA UNTUK SEMUA OPTION YANG DIPILIH
-    ========================== -->
-    <div class="space-y-4">
-      <OptionRenderer
-        v-if="aggregatedOption"
-        :key="aggregatedOption.renderKey"
-        :option="aggregatedOption"
-        :inspectionId="inspectionId"
-        :parent-item-id="item.id"
-        :inspection-item-id="item.inspection_item_id"
-        option-value="aggregated"
-        :nested-value="nestedValues?.aggregated"
-        :nested-error="nestedErrors?.aggregated"
-        @update:nested-value="handleNestedValueUpdate"
-        @update:nested-error="handleNestedErrorUpdate"
-        @update:upload-status="handleOptionUploadStatus"
-      />
-    </div>
+    <!-- Aggregated renderer (satu renderer untuk semua option terpilih) -->
+    <OptionRenderer
+      v-if="aggregatedRendererOption"
+      :key="currentStatuses.join(',')"
+      :option="aggregatedRendererOption"
+      :inspectionId="inspectionId"
+      :parent-item-id="item.id"
+      :inspection-item-id="item.inspection_item_id"
+      :selected-main-value="currentStatuses"
+      :value="currentNested"
+      @update:value="handleRendererValue"
+      @update:error="() => {}"
+      @update:upload-status="(s) => emit('update:uploadStatus', s)"
+    />
 
-    <!-- =========================
-         ERROR
-    ========================== -->
-    <div
-      v-if="error"
-      class="text-xs text-red-500"
-    >
-      {{ error }}
-    </div>
+    <!-- Error -->
+    <p v-if="error" class="text-xs text-red-500 mt-1">{{ error }}</p>
 
-    <!-- =========================
-         MIN / MAX INFO
-    ========================== -->
-    <div
-      v-if="settings.min_selected || settings.max_selected"
-      class="text-xs text-gray-400"
-    >
-      <span v-if="settings.min_selected">
-        Minimal {{ settings.min_selected }} dipilih
-      </span>
-
-      <span
-        v-if="settings.min_selected && settings.max_selected"
-      >
-        |
-      </span>
-
-      <span v-if="settings.max_selected">
-        Maksimal {{ settings.max_selected }} dipilih
-      </span>
+    <!-- Min / Max info -->
+    <div v-if="minSelected || maxSelected" class="text-xs text-gray-400">
+      <span v-if="minSelected">Minimal {{ minSelected }} dipilih</span>
+      <span v-if="minSelected && maxSelected"> | </span>
+      <span v-if="maxSelected">Maksimal {{ maxSelected }} dipilih</span>
     </div>
 
   </div>
 </template>
-
-<script setup lang="ts">
-import { computed, ref } from 'vue'
-import OptionRenderer from './options/OptionRenderer.vue';
-import type { FormItem } from '../../../types/formInspection'
-
-const props = defineProps<{
-  item: FormItem
-  inspectionId : number
-  modelValue: string[] | null
-  error?: string
-  nestedValues?: any
-  nestedErrors?: any
-}>()
-
-type NestedField = 'textarea' | 'image' | 'damage_ids'
-
-const emit = defineEmits<{
-  (e: 'update:modelValue', value: string[]): void
-  (e: 'update:error', error: string): void
-  (e: 'update:nestedValue', optionValue: string, field: NestedField, value: any): void
-  (e: 'update:nestedError', optionValue: string, field: NestedField, error: string): void
-  (e: 'update:uploadStatus', status: { hasUploading: boolean; hasFailed: boolean }): void
-}>()
-
-/* =========================
-   SETTINGS
-========================= */
-
-const settings = computed(() => props.item.settings || {})
-
-const options = computed(() => settings.value.options || [])
-
-const isHorizontal = computed(() =>
-  settings.value.layout === 'horizontal'
-)
-
-/* =========================
-   CHECK STATE
-========================= */
-
-const currentValues = computed(() =>
-  props.modelValue ?? []
-)
-
-const isChecked = (value: string) => {
-  return currentValues.value.includes(value)
-}
-
-/* =========================
-   SELECTED OPTIONS
-========================= */
-
-const selectedOptions = computed(() =>
-  options.value.filter(o =>
-    currentValues.value.includes(o.value)
-  )
-)
-
-/* =========================
-   UPLOAD STATUS TRACKING
-========================= */
-
-// Checkbox hanya punya satu OptionRenderer (aggregated),
-// tapi tetap pakai pola yang sama dengan RadioInput agar konsisten
-const optionUploadStatuses = ref<Record<string, { hasUploading: boolean; hasFailed: boolean }>>({})
-
-const handleOptionUploadStatus = (optionValue: string, status: { hasUploading: boolean; hasFailed: boolean }) => {
-  if (!status.hasUploading && !status.hasFailed) {
-    delete optionUploadStatuses.value[optionValue]
-  } else {
-    optionUploadStatuses.value[optionValue] = status
-  }
-
-  const anyUploading = Object.values(optionUploadStatuses.value).some(s => s.hasUploading)
-  const anyFailed    = Object.values(optionUploadStatuses.value).some(s => s.hasFailed)
-  emit('update:uploadStatus', { hasUploading: anyUploading, hasFailed: anyFailed })
-}
-
-/* =========================
-   AGGREGATED OPTION - GABUNGKAN SEMUA OPTION YANG DIPILIH
-========================= */
-
-/**
- * Menggabungkan semua option yang dipilih menjadi SATU option agregat
- */
-const aggregateOptions = (options: any[]) => {
-  if (options.length === 0) return null
-  
-  const optionsWithTextarea = options.filter(o => o.show_textarea === true)
-  const optionsWithImage = options.filter(o => o.show_image === true)
-  const optionsWithDamage = options.filter(o => o.show_damage === true)
-  
-  const result: any = {
-    renderKey: 'aggregated_' + options.map(o => o.value).join('_'),
-    optionValue: 'aggregated',
-    label: options.map(o => o.label).join(' + '),
-    isAggregated: true,
-    originalOptions: options.map(o => o.value),
-    
-    show_textarea: optionsWithTextarea.length > 0,
-    show_image: optionsWithImage.length > 0,
-    show_damage: optionsWithDamage.length > 0,
-    
-    textarea_is_required: false,
-    image_is_required: false,
-    rich_text: false,
-    allow_html: false,
-    
-    rows: 3,
-    max_length: null,
-    min_length: null,
-    max_size: null,
-    max_files: null,
-    max_width: null,
-    max_height: null,
-    compression_quality: null,
-    
-    damage_ids: [],
-    allowed_mimes: [],
-    
-    placeholder: null,
-    aspect_ratio: null,
-    damage_category_id: null
-  }
-  
-  if (optionsWithTextarea.length > 0) {
-    result.textarea_is_required = optionsWithTextarea.some(o => o.textarea_is_required === true)
-    result.rich_text = optionsWithTextarea.some(o => o.rich_text === true)
-    result.allow_html = optionsWithTextarea.some(o => o.allow_html === true)
-    
-    const rowsValues = optionsWithTextarea.map(o => o.rows).filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (rowsValues.length > 0) result.rows = Math.max(...rowsValues)
-    
-    const maxLengthValues = optionsWithTextarea.map(o => o.max_length).filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxLengthValues.length > 0) result.max_length = Math.max(...maxLengthValues)
-    
-    const minLengthValues = optionsWithTextarea.map(o => o.min_length).filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (minLengthValues.length > 0) result.min_length = Math.max(...minLengthValues)
-    
-    result.placeholder = optionsWithTextarea.find(o => o.placeholder)?.placeholder || null
-  }
-  
-  if (optionsWithImage.length > 0) {
-    result.image_is_required = optionsWithImage.some(o => o.image_is_required === true)
-    
-    const maxSizeValues = optionsWithImage.map(o => o.max_size).filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxSizeValues.length > 0) result.max_size = Math.max(...maxSizeValues)
-    
-    const maxFilesValues = optionsWithImage.map(o => o.max_files).filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxFilesValues.length > 0) result.max_files = Math.max(...maxFilesValues)
-    
-    const maxWidthValues = optionsWithImage.map(o => o.max_width).filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxWidthValues.length > 0) result.max_width = Math.max(...maxWidthValues)
-    
-    const maxHeightValues = optionsWithImage.map(o => o.max_height).filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxHeightValues.length > 0) result.max_height = Math.max(...maxHeightValues)
-    
-    const compressionValues = optionsWithImage.map(o => o.compression_quality).filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (compressionValues.length > 0) result.compression_quality = Math.max(...compressionValues)
-    
-    result.aspect_ratio = optionsWithImage.find(o => o.aspect_ratio)?.aspect_ratio || null
-    
-    const allMimes = optionsWithImage.flatMap(o => o.allowed_mimes || [])
-    if (allMimes.length > 0) result.allowed_mimes = [...new Set(allMimes)]
-  }
-  
-  if (optionsWithDamage.length > 0) {
-    const allDamageIds = optionsWithDamage.flatMap(o => o.damage_ids || [])
-    if (allDamageIds.length > 0) result.damage_ids = [...new Set(allDamageIds)]
-    
-    result.damage_category_id = optionsWithDamage.find(o => o.damage_category_id)?.damage_category_id || null
-  }
-  
-  return result
-}
-
-const aggregatedOption = computed(() => {
-  const selected = selectedOptions.value
-  
-  const optionsWithContent = selected.filter(o => 
-    o.show_textarea || o.show_image || o.show_damage
-  )
-  
-  if (optionsWithContent.length === 0) return null
-  
-  return aggregateOptions(optionsWithContent)
-})
-
-/* =========================
-   HANDLE CHANGE
-========================= */
-
-const handleChange = (option: any) => {
-  let values = [...currentValues.value]
-
-  if (isChecked(option.value)) {
-    values = values.filter(v => v !== option.value)
-    
-    if (values.length === 0) {
-      emit('update:nestedValue', 'aggregated', 'textarea', null)
-      emit('update:nestedValue', 'aggregated', 'image', null)
-      // Reset upload status ketika semua option di-uncheck
-      optionUploadStatuses.value = {}
-      emit('update:uploadStatus', { hasUploading: false, hasFailed: false })
-    }
-  } else {
-    if (
-      settings.value.max_selected &&
-      values.length >= settings.value.max_selected
-    ) {
-      return
-    }
-
-    values.push(option.value)
-  }
-
-  emit('update:modelValue', values)
-  validateField(values)
-}
-
-/* =========================
-   NESTED VALUES HANDLERS
-========================= */
-
-const handleNestedValueUpdate = (_optionValue: string, field: NestedField, value: any) => {
-  emit('update:nestedValue', 'aggregated', field, value)
-}
-
-const handleNestedErrorUpdate = (_optionValue: string, field: NestedField, error: string) => {
-  emit('update:nestedError', 'aggregated', field, error)
-}
-
-/* =========================
-   VALIDATION
-========================= */
-
-const validateField = (values: string[]) => {
-  let errorMessage = ''
-
-  if (props.item.is_required && values.length === 0) {
-    errorMessage = 'Field ini harus diisi'
-  }
-
-  if (
-    settings.value.min_selected &&
-    values.length < settings.value.min_selected
-  ) {
-    errorMessage = `Pilih minimal ${settings.value.min_selected} opsi`
-  }
-
-  if (
-    settings.value.max_selected &&
-    values.length > settings.value.max_selected
-  ) {
-    errorMessage = `Pilih maksimal ${settings.value.max_selected} opsi`
-  }
-
-  emit('update:error', errorMessage)
-}
-</script>

@@ -388,9 +388,9 @@ onMounted(() => {
           </svg>
         </button>
         <div class="flex-1">
-          <h1 class="text-lg font-semibold">Detail Inspeksi</h1>
+          <h1 class="text-sm font-semibold">Detail Inspeksi</h1>
         </div>
-        <div v-if="inspection" class="bg-white/20 px-3 py-1.5 rounded-full">
+        <div v-if="inspection" class="bg-white/20 px-2 py-1 rounded-full">
           <span class="text-xs font-medium">{{ inspection.status_label }}</span>
         </div>
       </div>
@@ -435,10 +435,10 @@ onMounted(() => {
             </span>
           </div>
           
-          <div class="space-y-4">
+          <div class="space-y-2">
             <div>
-              <p class="font-mono font-bold text-2xl text-gray-800 tracking-wider">{{ inspection.vehicle.license_plate }}</p>
-              <p class="text-gray-600 font-medium mt-1">{{ inspection.vehicle.vehicle_name }}</p>
+              <p class="font-mono font-bold text-xl text-gray-800 tracking-wider">{{ inspection.vehicle.license_plate }}</p>
+              <p class="text-gray-600 font-medium text-sm mt-1">{{ inspection.vehicle.vehicle_name }}</p>
             </div>
           </div>
         </div>
@@ -473,7 +473,7 @@ onMounted(() => {
                 <div class="flex items-center justify-between">
                   <div>
                     <p class="font-medium text-gray-800">{{ inspection.customer.name }}</p>
-                    <p v-if="inspection.customer.phone" class="text-xs text-gray-500 mt-1">{{ inspection.customer.phone }}</p>
+                    <!-- <p v-if="inspection.customer.phone" class="text-xs text-gray-500 mt-1">{{ inspection.customer.phone }}</p> -->
                   </div>
                   <button 
                     v-if="inspection.customer.phone"
@@ -487,13 +487,13 @@ onMounted(() => {
                     </svg>
                   </button>
                 </div>
-                <p v-if="inspection.customer.address" class="text-xs text-gray-500 mt-2 flex items-start">
+                <!-- <p v-if="inspection.customer.address" class="text-xs text-gray-500 mt-2 flex items-start">
                   <svg class="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   <span>{{ inspection.customer.address }}</span>
-                </p>
+                </p> -->
               </div>
 
               <!-- Seller Info -->
@@ -507,7 +507,7 @@ onMounted(() => {
                 <div class="flex items-center justify-between">
                   <div>
                     <p class="font-medium text-gray-800">{{ inspection.seller.name || '-' }}</p>
-                    <p v-if="inspection.seller.phone" class="text-xs text-gray-500 mt-1">{{ inspection.seller.phone }}</p>
+                    <!-- <p v-if="inspection.seller.phone" class="text-xs text-gray-500 mt-1">{{ inspection.seller.phone }}</p> -->
                   </div>
                   <button 
                     v-if="inspection.seller.phone"

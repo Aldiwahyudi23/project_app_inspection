@@ -22,9 +22,6 @@
             <div class="flex items-center justify-between mb-3">
               <div>
                 <h2 class="text-base font-semibold text-gray-800">Tambah Item Lainnya</h2>
-                <!-- <p class="text-xs text-gray-500 mt-0.5">
-                  {{ emptyDamageItems.length }} item belum diisi
-                </p> -->
               </div>
               <button
                 @click="$emit('close')"
@@ -102,15 +99,12 @@
                       </svg>
                     </div>
                     <div class="min-w-0 flex-1">
-                      <div class="flex items-center space-x-2">
-                        <!-- Nama item — klik → modal description -->
-                        <p
-                          class="text-sm font-medium text-gray-800 truncate"
-                          @click.stop="openDescription(item)"
-                        >
-                          {{ item.inspection_item.name }}
-                        </p>
-                      </div>
+                      <p
+                        class="text-sm font-medium text-gray-800 truncate"
+                        @click.stop="openDescription(item)"
+                      >
+                        {{ item.inspection_item.name }}
+                      </p>
                     </div>
                   </div>
                   <svg
@@ -126,20 +120,23 @@
                 <Transition name="expand">
                   <div v-if="expandedItem === item.id" class="px-4 pb-4 bg-gray-50 border-t border-gray-100">
                     <div class="pt-4">
+                      <!--
+                        DynamicInput format baru (flat):
+                        - Tidak ada nested-values / image-nested-values
+                        - modelValue untuk radio/select/checkbox = { status, note, image, damage_ids }
+                        - update:valid diteruskan untuk validasi lokal
+                      -->
                       <DynamicInput
                         :item="item"
                         :model-value="getLocalValue(item.id)"
                         :metadata="metadata"
                         :inspectionId="inspectionId"
                         :error="localErrors[item.id]"
-                        :nested-values="localNestedValues[item.id]"
-                        :image-nested-values="localImageNestedValues[item.id] ?? null"
                         :disabled="false"
                         @update:model-value="handleLocalInputChange(item.id, $event)"
                         @update:error="handleLocalError(item.id, $event)"
-                        @update:nested-value="(optVal, field, val) => handleLocalNestedValue(item.id, optVal, field, val)"
-                        @update:nested-error="(_optVal, _field, err) => handleLocalError(item.id, err)"
-                        @update:image-nested-value="(field, val) => handleLocalImageNestedValue(item.id, field, val)"
+                        @update:valid="handleLocalValid(item.id, $event)"
+                        @update:upload-status="(s) => handleUploadStatus(item.id, s)"
                       />
 
                       <!-- Action Buttons -->
@@ -200,30 +197,34 @@ import type { Metadata } from '../../types/formInspection'
 import DynamicInput from './Input/DynamicInput.vue'
 
 const props = defineProps<{
-  show: boolean
+  show:        boolean
   damageItems: any[]
-  values: Record<number, any>
-  metadata: Metadata
+  values:      Record<number, any>
+  metadata:    Metadata
   inspectionId: number
-  nestedValues: Record<string | number, any>
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'save-item', itemId: number, value: any, nested: any, imageNested: any): void
+  /**
+   * save-item: emit nilai flat ke parent.
+   * Untuk radio/select/checkbox: value = { status, note, image, damage_ids }
+   * Untuk text/number/dll:       value = string | number
+   * Untuk image:                 value = [{id, image_url}]
+   */
+  (e: 'save-item', itemId: number, value: any): void
 }>()
 
 const searchQuery  = ref('')
 const expandedItem = ref<number | null>(null)
 
-// ─── Local state (TIDAK disimpan ke storage sampai klik Simpan) ─
-// Ini adalah "scratch pad" sementara di dalam modal
-const localValues            = ref<Record<number, any>>({})
-const localErrors            = ref<Record<number, string>>({})
-const localNestedValues      = ref<Record<number, any>>({})
-const localImageNestedValues = ref<Record<number, any>>({})
+// ── Local state — scratch pad sementara di dalam modal ────────
+// Format sama dengan formValues di InspectionFormView (flat)
+const localValues  = ref<Record<number, any>>({})
+const localErrors  = ref<Record<number, string>>({})
+const localValids  = ref<Record<number, boolean>>({})  // dari update:valid komponen
 
-// ─── Description modal ──────────────────────────────────────
+// ── Description modal ─────────────────────────────────────────
 const descriptionModal = reactive({
   show:        false,
   name:        '',
@@ -237,17 +238,15 @@ const openDescription = (item: any) => {
   descriptionModal.show        = true
 }
 
-// ─── Reset saat modal dibuka/ditutup ────────────────────────
+// ── Reset saat modal dibuka ───────────────────────────────────
 watch(() => props.show, (val) => {
   if (val) {
     searchQuery.value  = ''
     expandedItem.value = null
-    // Reset scratch pad — data yang belum disimpan hilang
-    localValues.value            = {}
-    localErrors.value            = {}
-    localNestedValues.value      = {}
-    localImageNestedValues.value = {}
-    descriptionModal.show        = false
+    localValues.value  = {}
+    localErrors.value  = {}
+    localValids.value  = {}
+    descriptionModal.show = false
   }
 })
 
@@ -270,14 +269,13 @@ const toggleItem = (itemId: number) => {
   }
 }
 
-// ─── Gunakan local value SAJA — tidak campur dengan props.values ─
-const getLocalValue = (itemId: number) => localValues.value[itemId]
+// Gunakan local value saja — tidak campur dengan props.values
+const getLocalValue = (itemId: number) => localValues.value[itemId] ?? null
 
-// ─── Local input handlers (hanya mengubah state lokal modal) ─
+// ── Local input handlers ──────────────────────────────────────
 
 const handleLocalInputChange = (itemId: number, value: any) => {
   localValues.value = { ...localValues.value, [itemId]: value }
-  // Hapus error jika ada isian
   if (value !== undefined && value !== null && value !== '') {
     const errs = { ...localErrors.value }
     delete errs[itemId]
@@ -295,90 +293,81 @@ const handleLocalError = (itemId: number, errorMsg: string) => {
   }
 }
 
-const handleLocalNestedValue = (itemId: number, optionValue: string, field: string, value: any) => {
-  if (!localNestedValues.value[itemId]) localNestedValues.value[itemId] = {}
-  if (!localNestedValues.value[itemId][optionValue]) localNestedValues.value[itemId][optionValue] = {}
-  localNestedValues.value[itemId][optionValue][field] = value
-  localNestedValues.value = { ...localNestedValues.value }
+const handleLocalValid = (itemId: number, valid: boolean) => {
+  localValids.value = { ...localValids.value, [itemId]: valid }
 }
 
-const handleLocalImageNestedValue = (itemId: number, field: string, value: any) => {
-  const imgKey = itemId
-  if (!localImageNestedValues.value[imgKey]) {
-    localImageNestedValues.value[imgKey] = { selectedOption: null, nested: {} }
+const handleUploadStatus = (_itemId: number, status: { hasUploading: boolean; hasFailed: boolean }) => {
+  // Upload status di damage modal — cukup tracking lokal, tidak perlu naik ke FormView
+  // karena global watch imageStore di FormView sudah handle sync ke storage
+  if (status.hasUploading || status.hasFailed) {
+    // Bisa tambahkan UI feedback jika perlu (loading indicator di tombol Simpan, dll)
   }
-
-  if (field === 'selectedOption') {
-    localImageNestedValues.value[imgKey].selectedOption = value
-  } else {
-    const sepIdx = field.indexOf('__')
-    if (sepIdx > -1) {
-      const optionValue = field.substring(0, sepIdx)
-      const nestedField = field.substring(sepIdx + 2)
-      if (!localImageNestedValues.value[imgKey].nested) localImageNestedValues.value[imgKey].nested = {}
-      if (!localImageNestedValues.value[imgKey].nested[optionValue]) {
-        localImageNestedValues.value[imgKey].nested[optionValue] = {}
-      }
-      localImageNestedValues.value[imgKey].nested[optionValue][nestedField] = value
-    }
-  }
-  localImageNestedValues.value = { ...localImageNestedValues.value }
 }
 
-// ─── Batal: buang data lokal item ini, tutup expand ─────────
+// ── Batal: buang data lokal item ini ─────────────────────────
 const cancelItem = (itemId: number) => {
   expandedItem.value = null
-
-  // Buang local values untuk item ini
   const vals = { ...localValues.value }
   const errs = { ...localErrors.value }
-  const nest = { ...localNestedValues.value }
-  const imgn = { ...localImageNestedValues.value }
+  const vlds = { ...localValids.value }
   delete vals[itemId]
   delete errs[itemId]
-  delete nest[itemId]
-  delete imgn[itemId]
-  localValues.value            = vals
-  localErrors.value            = errs
-  localNestedValues.value      = nest
-  localImageNestedValues.value = imgn
+  delete vlds[itemId]
+  localValues.value = vals
+  localErrors.value = errs
+  localValids.value = vlds
 }
 
-// ─── Simpan: validasi lalu emit ke parent ───────────────────
+// ── Simpan: validasi lalu emit ke parent ─────────────────────
 const saveItem = (itemId: number) => {
-  const value = localValues.value[itemId]
+  const value   = localValues.value[itemId]
+  const item    = props.damageItems.find(i => i.id === itemId)
+  const isOpt   = ['radio', 'select', 'checkbox'].includes(item?.input_type)
+  const isImg   = item?.input_type === 'image'
 
-  const item = props.damageItems.find(i => i.id === itemId)
   if (item?.is_required) {
-    const isEmpty = value === undefined || value === null || value === '' ||
-      (Array.isArray(value) && value.length === 0)
+    let isEmpty = false
+
+    if (isOpt) {
+      // Flat: cek status
+      const status = value?.status
+      isEmpty = !status || (Array.isArray(status) && status.length === 0)
+    } else if (isImg) {
+      isEmpty = !value || (Array.isArray(value) && value.length === 0)
+    } else {
+      isEmpty = value === undefined || value === null || value === '' ||
+        (Array.isArray(value) && value.length === 0)
+    }
+
     if (isEmpty) {
       localErrors.value = { ...localErrors.value, [itemId]: 'Field ini harus diisi' }
       return
     }
   }
 
-  const nested      = localNestedValues.value[itemId] || null
-  const imageNested = localImageNestedValues.value[itemId] || null
+  // Cek validasi dari komponen (nested required, dll)
+  // Jika komponen belum emit update:valid, asumsikan valid
+  if (localValids.value[itemId] === false) {
+    localErrors.value = { ...localErrors.value, [itemId]: 'Harap lengkapi semua field yang wajib diisi' }
+    return
+  }
 
-  // Emit ke parent — parent yang bertanggung jawab simpan ke storage
-  emit('save-item', itemId, value, nested, imageNested)
+  // Emit ke parent — parent yang simpan ke storage & formValues
+  emit('save-item', itemId, value)
 
   expandedItem.value = null
 
-  // Bersihkan local state item ini setelah berhasil simpan
+  // Bersihkan local state item ini
   const vals = { ...localValues.value }
   const errs = { ...localErrors.value }
-  const nest = { ...localNestedValues.value }
-  const imgn = { ...localImageNestedValues.value }
+  const vlds = { ...localValids.value }
   delete vals[itemId]
   delete errs[itemId]
-  delete nest[itemId]
-  delete imgn[itemId]
-  localValues.value            = vals
-  localErrors.value            = errs
-  localNestedValues.value      = nest
-  localImageNestedValues.value = imgn
+  delete vlds[itemId]
+  localValues.value = vals
+  localErrors.value = errs
+  localValids.value = vlds
 }
 </script>
 

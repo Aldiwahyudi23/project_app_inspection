@@ -248,13 +248,19 @@ export interface FormValues {
   [itemId: string]: FormValue;
 }
 
-// tipe untuk pengaturan kamera
-export type CameraSource = 'camera' | 'gallery' | 'ask';
+export type CameraSource = 'camera' | 'gallery' | 'ask'
 
 export interface CameraSettings {
-  source: CameraSource;
-  saveToGallery?: boolean;
-  maxSize?: number;
+  source: CameraSource
+  saveToGallery: boolean
+  maxSize: number
+  /**
+   * Jika true  → setelah pilih file, buka preview modal dulu.
+   *              User bisa rotate, lalu klik "Simpan & Upload".
+   * Jika false → file langsung diupload ke background tanpa preview.
+   * Default: true
+   */
+  previewBeforeUpload: boolean
 }
 
 // Key untuk localStorage

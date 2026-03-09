@@ -1,11 +1,20 @@
+<!-- components/inspection/inputs/Image/ImagePreviewModal.vue -->
+<!--
+  Preview modal yang kompatibel dengan store-based images.
+  Perubahan utama dari versi lama:
+  - Tidak ada "Simpan & Upload" — upload sudah berjalan di background via store.
+  - Tombol simpan hanya untuk apply rotasi (emit 'save' dengan data rotation).
+  - Indikator status per gambar: pending, uploading, done, failed.
+  - Gambar yang status-nya bukan 'done' ditampilkan badge status.
+-->
 <template>
   <div v-if="show" class="fixed inset-0 z-50 bg-white flex flex-col">
 
     <!-- HEADER -->
     <div class="p-4 border-b flex justify-between items-center">
-      <button @click="$emit('close')" class="text-blue-600">Kembali</button>
-      <h3 class="font-semibold">{{ title }}</h3>
-      <div class="w-10"></div>
+      <button @click="$emit('close')" class="text-blue-600 font-medium">Kembali</button>
+      <h3 class="font-semibold truncate max-w-[60%]">{{ title }}</h3>
+      <div class="w-14"></div>
     </div>
 
     <!-- MAIN VIEWER -->
@@ -15,13 +24,17 @@
       <button
         v-if="hasPrevious"
         @click="previousImage"
-        class="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center text-2xl z-10 hover:bg-white transition-colors"
+        class="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80
+               backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center
+               text-2xl z-10 hover:bg-white transition-colors"
       >‹</button>
 
       <button
         v-if="hasNext"
         @click="nextImage"
-        class="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center text-2xl z-10 hover:bg-white transition-colors"
+        class="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80
+               backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center
+               text-2xl z-10 hover:bg-white transition-colors"
       >›</button>
 
       <!-- IMAGE CONTAINER -->
@@ -44,40 +57,83 @@
           draggable="false"
           @load="resetTransform"
         />
+
+        <!-- Overlay status di viewer utama -->
+        <div
+          v-if="currentImage?.status && currentImage.status !== 'done'"
+          class="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-3 pointer-events-none"
+        >
+          <!-- Uploading -->
+          <template v-if="currentImage.status === 'uploading'">
+            <svg class="w-12 h-12 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            <span class="text-white text-sm font-medium">Mengupload…</span>
+          </template>
+
+          <!-- Pending -->
+          <template v-else-if="currentImage.status === 'pending'">
+            <span class="w-8 h-8 rounded-full bg-yellow-400 animate-pulse block"></span>
+            <span class="text-white text-sm font-medium">Menunggu upload…</span>
+          </template>
+
+          <!-- Failed -->
+          <template v-else-if="currentImage.status === 'failed'">
+            <svg class="w-12 h-12 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 8v4m0 4h.01M21 12A9 9 0 113 12a9 9 0 0118 0z"/>
+            </svg>
+            <span class="text-white text-sm font-medium">Upload gagal</span>
+          </template>
+        </div>
       </div>
 
-      <!-- CONTROL BUTTONS -->
+      <!-- Placeholder jika tidak ada URL -->
+      <div v-else class="text-white/50 text-sm">Tidak ada gambar</div>
+
+      <!-- CONTROL BUTTONS (zoom, rotate) -->
       <div
-        v-if="editable"
-        class="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3 bg-black/50 backdrop-blur-sm p-2 rounded-full"
+        class="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3
+               bg-black/50 backdrop-blur-sm p-2 rounded-full"
       >
-        <!-- Zoom Out -->
-        <button @click="zoomOut" class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-xl font-bold">−</button>
+        <button @click="zoomOut"
+          class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-xl font-bold">−</button>
+        <button @click="zoomIn"
+          class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-xl font-bold">+</button>
 
-        <!-- Zoom In -->
-        <button @click="zoomIn" class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-xl font-bold">+</button>
-
-        <!-- Rotate — hanya tampil untuk gambar baru (belum di-upload ke server) -->
+        <!-- Rotate — hanya untuk gambar baru (belum di-upload = ada .file) -->
         <template v-if="currentIsNew">
-          <button @click="rotate(-90)" class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-xl">↺</button>
-          <button @click="rotate(90)"  class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-xl">↻</button>
+          <button @click="rotate(-90)"
+            class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-xl">↺</button>
+          <button @click="rotate(90)"
+            class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-xl">↻</button>
         </template>
 
-        <!-- Reset zoom/pan -->
-        <button @click="resetTransform" class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-sm font-bold">⊙</button>
+        <button @click="resetTransform"
+          class="w-10 h-10 bg-white rounded-full shadow flex items-center justify-center text-sm font-bold">⊙</button>
       </div>
 
       <!-- IMAGE COUNTER -->
-      <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm text-white px-3 py-1 rounded-full text-sm">
+      <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm
+                  text-white px-3 py-1 rounded-full text-sm">
         {{ currentIndex + 1 }} / {{ localImages.length }}
       </div>
 
-      <!-- NEW badge untuk gambar belum di-upload -->
-      <div
-        v-if="currentIsNew"
-        class="absolute top-4 right-4 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full"
-      >
-        Baru
+      <!-- Status badge kanan atas -->
+      <div class="absolute top-4 right-4 flex flex-col items-end gap-1">
+        <!-- "Baru" badge untuk gambar yang belum pernah di-upload -->
+        <div
+          v-if="currentIsNew"
+          class="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full"
+        >Baru</div>
+
+        <!-- Status badge -->
+        <div
+          v-if="currentImage?.status"
+          :class="statusBadgeClass(currentImage.status)"
+          class="text-white text-xs px-2 py-0.5 rounded-full"
+        >{{ statusLabel(currentImage.status) }}</div>
       </div>
     </div>
 
@@ -85,7 +141,7 @@
     <div class="p-3 border-t overflow-x-auto flex gap-2 bg-white">
       <div
         v-for="(img, i) in localImages"
-        :key="i"
+        :key="img.localId || i"
         class="relative w-16 h-16 flex-shrink-0 rounded overflow-hidden border-2 cursor-pointer"
         :class="i === currentIndex ? 'border-blue-500' : 'border-transparent'"
         @click="selectImage(i)"
@@ -95,25 +151,25 @@
           class="w-full h-full object-cover"
         />
 
-        <!-- NEW indicator di thumbnail -->
+        <!-- Status dot di thumbnail -->
         <div
-          v-if="isNewImage(img)"
-          class="absolute bottom-0 left-0 right-0 bg-blue-500/80 text-white text-center"
-          style="font-size:9px;line-height:1.4;"
-        >baru</div>
+          :class="thumbStatusDot(img.status)"
+          class="absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full border border-white"
+        ></div>
 
         <!-- DELETE BUTTON -->
         <button
-          v-if="editable"
           @click.stop="remove(i)"
-          class="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center shadow"
+          class="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 text-white text-xs
+                 rounded-full flex items-center justify-center shadow"
         >✕</button>
       </div>
 
       <!-- ADD MORE -->
       <div
-        v-if="editable && !isMaxReached"
-        class="w-16 h-16 flex-shrink-0 border-2 border-dashed border-gray-300 flex items-center justify-center rounded cursor-pointer hover:border-blue-500"
+        v-if="!isMaxReached"
+        class="w-16 h-16 flex-shrink-0 border-2 border-dashed border-gray-300 flex
+               items-center justify-center rounded cursor-pointer hover:border-blue-500"
         @click="$emit('add-more')"
       >
         <span class="text-2xl text-gray-400">+</span>
@@ -121,25 +177,24 @@
     </div>
 
     <!-- SAVE BUTTON -->
-    <div v-if="editable" class="p-4 border-t bg-white">
+    <div class="p-4 border-t bg-white">
       <button
-        class="w-full bg-blue-600 text-white py-3 rounded-lg font-medium active:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-        :disabled="isSaving"
+        class="w-full bg-blue-600 text-white py-3 rounded-lg font-medium
+               active:bg-blue-700 transition-colors"
         @click="save"
       >
-        <svg v-if="isSaving" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-        </svg>
-        <span>{{ isSaving ? 'Memproses...' : 'Simpan & Upload' }}</span>
+        {{ isNewBatch ? 'Simpan & Upload' : 'Selesai' }}
       </button>
+      <!-- <p v-if="isNewBatch" class="text-center text-xs text-gray-400 mt-1.5">
+        Upload akan berjalan otomatis di background
+      </p> -->
     </div>
 
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   show:       Boolean,
@@ -147,30 +202,53 @@ const props = defineProps({
   images:     Array,
   max:        Number,
   editable:   Boolean,
-  startIndex: Number
+  startIndex: Number,
+  /** true = batch gambar baru (belum diupload), false = view gambar lama */
+  isNewBatch: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['close', 'save', 'add-more'])
+const emit = defineEmits(['close', 'save', 'add-more', 'remove-stored'])
 
 const localImages  = ref([])
 const currentIndex = ref(0)
 
 const title = computed(() =>
-  props.itemName && props.itemName.trim() !== '' ? props.itemName : 'Preview'
+  props.itemName && props.itemName.trim() !== '' ? props.itemName : 'Preview Gambar'
 )
 
 // ─── Helper ──────────────────────────────────────────────────
 
-const getImgUrl = (img) => img?.image_url || img?.url || img || ''
+const getImgUrl = (img) => img?.imageUrl || img?.image_url || img?.url || img || ''
 
-/**
- * Gambar "baru" = belum pernah di-upload ke server.
- * Cirinya: punya .file (File object) dan TIDAK punya .id dari server.
- */
-const isNewImage = (img) => !!img?.file && !img?.id
+/** Gambar "baru" = ada .file (File object) dan belum punya serverId / id */
+const isNewImage = (img) => !!img?.file && !img?.id && !img?.serverId
 
-const currentIsNew    = computed(() => isNewImage(localImages.value[currentIndex.value]))
-const currentImageUrl = computed(() => getImgUrl(localImages.value[currentIndex.value]))
+const currentImage    = computed(() => localImages.value[currentIndex.value])
+const currentIsNew    = computed(() => isNewImage(currentImage.value))
+const currentImageUrl = computed(() => getImgUrl(currentImage.value))
+
+// ─── Status helpers ───────────────────────────────────────────
+
+const statusLabel = (status) => ({
+  pending:   'Menunggu',
+  uploading: 'Uploading…',
+  done:      'Tersimpan',
+  failed:    'Gagal',
+}[status] || status)
+
+const statusBadgeClass = (status) => ({
+  pending:   'bg-yellow-500',
+  uploading: 'bg-blue-500',
+  done:      'bg-green-500',
+  failed:    'bg-red-500',
+}[status] || 'bg-gray-500')
+
+const thumbStatusDot = (status) => ({
+  pending:   'bg-yellow-400',
+  uploading: 'bg-blue-400',
+  done:      'bg-green-400',
+  failed:    'bg-red-500',
+}[status] || 'bg-gray-400')
 
 // ─── Watch ───────────────────────────────────────────────────
 
@@ -181,18 +259,52 @@ watch(() => props.show, (val) => {
 watch(() => props.images, (val) => {
   if (!val) { localImages.value = []; return }
 
-  const mapped = val.map(img => ({ ...img, rotation: img.rotation || 0 }))
+  const mapped = val.map(img => ({ ...img, rotation: img.rotation ?? 0 }))
 
-  // Kalau modal sedang terbuka DAN jumlah gambar bertambah → APPEND gambar baru saja
-  if (props.show && localImages.value.length > 0 && mapped.length > localImages.value.length) {
+  // ── Modal belum terbuka atau list kosong: set fresh ──
+  if (!props.show || localImages.value.length === 0) {
+    localImages.value = mapped
+    return
+  }
+
+  // ── Modal terbuka, gambar bertambah (user klik "Tambah lagi") ──
+  // Hanya append gambar baru di ujung; jangan reset agar rotasi yang
+  // sudah di-edit user tidak hilang.
+  if (mapped.length > localImages.value.length) {
     const newOnes = mapped.slice(localImages.value.length)
     localImages.value = [...localImages.value, ...newOnes]
+    // Fokus ke gambar baru pertama
     currentIndex.value = localImages.value.length - newOnes.length
     resetTransform()
-  } else {
-    localImages.value = mapped
+    return
   }
-}, { immediate: true })
+
+  // ── Jumlah sama: update status/url gambar yang sudah ada ──
+  // (misal status berubah dari pending → uploading → done di background)
+  if (mapped.length === localImages.value.length) {
+    mapped.forEach((img, i) => {
+      const local = localImages.value[i]
+      if (!local) return
+      // Update field yang bisa berubah dari store; rotation JANGAN dioverride
+      // karena user mungkin sudah mengeditnya di modal.
+      if (img.status    !== undefined) local.status    = img.status
+      if (img.imageUrl)                local.imageUrl  = img.imageUrl
+      if (img.id)                      local.id        = img.id
+      if (img.serverId)                local.serverId  = img.serverId
+      // Update url hanya jika gambar sudah done (server URL menggantikan blob)
+      if (img.status === 'done' && img.url && !img.url.startsWith('blob:')) {
+        local.url = img.url
+      }
+    })
+    return
+  }
+
+  // ── Jumlah berkurang (gambar dihapus dari luar modal) ──
+  localImages.value = mapped
+  if (currentIndex.value >= localImages.value.length) {
+    currentIndex.value = Math.max(0, localImages.value.length - 1)
+  }
+}, { immediate: true, deep: true })
 
 watch(() => props.startIndex, val => {
   if (val !== undefined) currentIndex.value = val
@@ -269,10 +381,6 @@ const zoomIn  = () => { scale.value = Math.min(scale.value + 0.3, 5) }
 const zoomOut = () => { scale.value = Math.max(scale.value - 0.3, 1) }
 const resetTransform = () => { scale.value = 1; position.value = { x: 0, y: 0 } }
 
-/**
- * rotate — hanya untuk gambar baru.
- * Guard isNewImage() memastikan gambar server tidak bisa di-rotate.
- */
 const rotate = (deg) => {
   const img = localImages.value[currentIndex.value]
   if (!img || !isNewImage(img)) return
@@ -283,126 +391,50 @@ const rotate = (deg) => {
 
 const previousImage = () => { if (hasPrevious.value) { currentIndex.value--; resetTransform() } }
 const nextImage     = () => { if (hasNext.value)     { currentIndex.value++; resetTransform() } }
+const selectImage   = (i) => { if (i !== currentIndex.value) { currentIndex.value = i; resetTransform() } }
 
 /* ================= REMOVE ================= */
 
+/**
+ * remove — hapus gambar dari localImages.
+ * Emit 'remove-stored' untuk gambar yang sudah di server (localId ada)
+ * agar ImageInput bisa panggil store.removeImage().
+ * Untuk gambar baru (_isNew), hanya hapus dari local list.
+ */
 const remove = (i) => {
   const img = localImages.value[i]
-  if (img?.url?.startsWith('blob:')) URL.revokeObjectURL(img.url)
+
+  // Gambar sudah di store (punya localId dan bukan _isNew) → beritahu parent
+  if (img?.localId && !img?._isNew) {
+    emit('remove-stored', img.localId)
+  }
+
   localImages.value.splice(i, 1)
   if (localImages.value.length === 0) { emit('close'); return }
   if (currentIndex.value >= localImages.value.length) currentIndex.value = localImages.value.length - 1
   resetTransform()
 }
 
-const selectImage = (i) => {
-  if (i === currentIndex.value) return
-  currentIndex.value = i
-  resetTransform()
-}
-
-/* ================= ROTATE VIA CANVAS ================= */
-
-/**
- * rotateFileByCanvas
- * Rotate File lokal pakai canvas → File baru.
- * Hanya untuk gambar yang punya .file (bukan dari server) sehingga
- * tidak ada masalah CORS / tainted canvas.
- */
-const rotateFileByCanvas = (file, rotation, filename, mimeType) => {
-  return new Promise((resolve, reject) => {
-    const img     = new Image()
-    const blobUrl = URL.createObjectURL(file)
-
-    img.onload = () => {
-      const rad    = (rotation * Math.PI) / 180
-      const sin    = Math.abs(Math.sin(rad))
-      const cos    = Math.abs(Math.cos(rad))
-      const width  = Math.round(img.width * cos + img.height * sin)
-      const height = Math.round(img.width * sin + img.height * cos)
-
-      const canvas = document.createElement('canvas')
-      canvas.width  = width
-      canvas.height = height
-
-      const ctx = canvas.getContext('2d')
-      ctx.translate(width / 2, height / 2)
-      ctx.rotate(rad)
-      ctx.drawImage(img, -img.width / 2, -img.height / 2)
-
-      URL.revokeObjectURL(blobUrl)
-
-      canvas.toBlob((blob) => {
-        if (!blob) { reject(new Error('Canvas toBlob gagal')); return }
-        resolve(new File([blob], filename || 'image.jpg', { type: mimeType || 'image/jpeg' }))
-      }, mimeType || 'image/jpeg', 0.92)
-    }
-
-    img.onerror = () => {
-      URL.revokeObjectURL(blobUrl)
-      reject(new Error('Gagal load gambar untuk rotate'))
-    }
-
-    img.src = blobUrl
-  })
-}
-
 /* ================= SAVE ================= */
 
-const isSaving = ref(false)
-
 /**
- * save — apply rotation (hanya gambar baru) via canvas, lalu emit ke ImageInput.
- * Gambar dari server langsung di-emit tanpa modifikasi.
+ * save — emit data gambar ke ImageInput.
+ *
+ * Emit seluruh list agar ImageInput tahu:
+ * - Gambar _isNew  → perlu di-upload ke store
+ * - Gambar stored  → sudah ada, tidak diapa-apakan
  */
-const save = async () => {
-  if (isSaving.value) return
-  isSaving.value = true
+const save = () => {
+  const result = localImages.value.map(img => ({
+    localId:  img.localId,
+    file:     img.file,
+    rotation: img.rotation || 0,
+    _isNew:   isNewImage(img),
+    id:       img.id || img.serverId,
+    url:      img.url,
+    status:   img.status,
+  }))
 
-  try {
-    const processed = await Promise.all(
-      localImages.value.map(async (img) => {
-        // Gambar dari server → tidak di-rotate, langsung return
-        if (!isNewImage(img)) return { ...img, rotation: 0 }
-
-        const rot = ((img.rotation || 0) % 360 + 360) % 360
-        if (rot === 0) return { ...img, rotation: 0 }
-
-        // Gambar baru dengan rotation → apply via canvas
-        const rotated = await rotateFileByCanvas(
-          img.file,
-          rot,
-          img.file.name,
-          img.file.type
-        )
-
-        if (img.url?.startsWith('blob:')) URL.revokeObjectURL(img.url)
-
-        return {
-          ...img,
-          file:     rotated,
-          url:      URL.createObjectURL(rotated),
-          rotation: 0
-        }
-      })
-    )
-
-    emit('save', processed)
-  } catch (err) {
-    console.error('[ImagePreviewModal] Gagal apply rotation:', err)
-    emit('save', localImages.value)
-  } finally {
-    isSaving.value = false
-  }
+  emit('save', result)
 }
-
-/* ================= CLEANUP ================= */
-
-onBeforeUnmount(() => {
-  localImages.value.forEach(img => {
-    if (isNewImage(img) && img.url?.startsWith('blob:')) {
-      URL.revokeObjectURL(img.url)
-    }
-  })
-})
 </script>

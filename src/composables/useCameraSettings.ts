@@ -8,7 +8,8 @@ const STORAGE_KEY = 'inspection_camera_settings'
 const defaultSettings: CameraSettings = {
   source: 'ask', // default: selalu tanya
   saveToGallery: false,
-  maxSize: 10 // 10 MB default
+  maxSize: 10, // 10 MB default
+  previewBeforeUpload: true,
 }
 
 // Buat singleton ref di luar function agar shared ke semua komponen
@@ -51,6 +52,9 @@ export function useCameraSettings() {
     saveSettings({ source })
   }
 
+  const setPreviewBeforeUpload = (enabled: boolean) =>
+    saveSettings({ previewBeforeUpload: enabled })
+
   // Reset ke default
   const resetToDefault = () => {
     settings.value = { ...defaultSettings }
@@ -80,6 +84,7 @@ export function useCameraSettings() {
     settings,      // Ref yang reaktif dan shared
     saveSettings,
     setCameraSource,
+    setPreviewBeforeUpload,
     resetToDefault,
     listenForChanges
   }

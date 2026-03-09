@@ -1,151 +1,210 @@
-<!-- components/inspection/inputs/RadioInput.vue -->
-<template>
-  <div class="space-y-4">
-
-    <!-- =========================
-         OPTIONS
-    ========================== -->
-    <div
-      :class="[
-        isHorizontal
-          ? responsiveGridClass
-          : 'space-y-2'
-      ]"
-    >
-      <div
-        v-for="option in options"
-        :key="option.value"
-      >
-        <!-- ================= HORIZONTAL ================= -->
-        <div
-          v-if="isHorizontal"
-          @click="handleSelect(option)"
-          :class="[
-            'text-center px-3 py-2 rounded-lg border text-sm font-medium transition-all cursor-pointer',
-            isSelected(option)
-              ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          ]"
-        >
-          {{ option.label }}
-        </div>
-
-        <!-- ================= VERTICAL ================= -->
-        <div
-          v-else
-          class="flex items-center space-x-3 cursor-pointer"
-          @click="handleSelect(option)"
-        >
-          <input
-            type="radio"
-            :checked="isSelected(option)"
-            class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-          />
-          <span class="text-sm font-medium text-gray-700">
-            {{ option.label }}
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- =========================
-         OPTION RENDERER - SELALU PAKAI SATU RENDERER
-         (Tapi datanya sudah di-aggregate)
-    ========================== -->
-    <div class="space-y-4">
-      <!-- SINGLE MODE - Render per option yang dipilih -->
-      <OptionRenderer
-        v-for="option in rendererOptions"
-        :key="option.renderKey"
-        :option="option"
-        :inspectionId="inspectionId"
-        :parent-item-id="item.id"
-        :inspection-item-id="item.inspection_item_id"
-        :option-value="option.optionValue"
-        :nested-value="getNestedValueForOption(option.optionValue)"
-        :nested-error="getNestedErrorForOption(option.optionValue)"
-        @update:nested-value="handleNestedValueUpdate"
-        @update:nested-error="handleNestedErrorUpdate"
-        @update:upload-status="handleOptionUploadStatus"
-      />
-    </div>
-
-    <!-- =========================
-         ERROR
-    ========================== -->
-    <div
-      v-if="error"
-      class="text-xs text-red-500"
-    >
-      {{ error }}
-    </div>
-
-  </div>
-</template>
-
+<!-- components/inspection/Input/RadioInput.vue -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import OptionRenderer from './options/OptionRenderer.vue'
 import type { FormItem } from '../../../types/formInspection'
 
+/**
+ * RadioInput — flat modelValue:
+ *   null                         → belum dipilih
+ *   { status: "Ada", ... }       → single option terpilih
+ *   { status: ["A","B"], ... }   → multi option terpilih (option.multi = true)
+ *
+ * Konsep multi:
+ *   - option.multi = false (default) → single selection, pilih satu reset lainnya
+ *   - option.multi = true  → multi selection, bisa dipilih bersamaan dengan option multi lainnya
+ *   - Memilih single saat ada multi terpilih → reset ke single saja
+ *   - Memilih multi saat ada single terpilih → reset ke multi saja
+ *
+ * Nested renderer:
+ *   - Single option → render optionnya langsung
+ *   - Multi options → aggregate menjadi satu renderer gabungan
+ */
+
+export interface RadioFlatValue {
+  status:      string | string[]
+  note?:       string | null
+  image?:      any[]  | null
+  damage_ids?: number[]
+}
+
 const props = defineProps<{
-  item: FormItem
+  item:         FormItem
   inspectionId: number
-  modelValue: string | string[] | null
-  error?: string
-  nestedValues?: any
-  nestedErrors?: any
+  modelValue:   RadioFlatValue | null
+  error?:       string
+  disabled?:    boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', value: any): void
-  (e: 'update:error', error: string): void
-  (e: 'update:nestedValue', optionValue: string, field: 'textarea' | 'image' | 'damage_ids', value: any): void
-  (e: 'update:nestedError', optionValue: string, field: 'textarea' | 'image', error: string): void
+  (e: 'update:modelValue',   value: RadioFlatValue | null): void
+  (e: 'update:error',        error: string): void
+  (e: 'update:valid',        valid: boolean): void
   (e: 'update:uploadStatus', status: { hasUploading: boolean; hasFailed: boolean }): void
 }>()
 
-/* =========================
-   SETTINGS
-========================= */
-const settings = computed(() => props.item.settings || {})
-const options = computed(() => settings.value.options || [])
+// ─────────────────────────────────────────────────────────────
+// SETTINGS
+// ─────────────────────────────────────────────────────────────
+
+const settings     = computed(() => props.item.settings || {})
+const options      = computed<any[]>(() => settings.value.options || [])
 const isHorizontal = computed(() => settings.value.layout === 'horizontal')
 
-/* =========================
-   RESPONSIVE GRID
-========================= */
-const responsiveGridClass = computed(() => {
-  const count = options.value.length
-  if (count <= 2) return 'grid grid-cols-2 gap-2 md:flex md:flex-wrap'
-  if (count === 3) return 'grid grid-cols-3 gap-2 md:flex md:flex-wrap'
-  return 'grid grid-cols-3 gap-2 md:flex md:flex-wrap'
+// ─────────────────────────────────────────────────────────────
+// CURRENT STATUS — selalu sebagai array untuk kemudahan logika
+// ─────────────────────────────────────────────────────────────
+
+const currentStatusArr = computed<string[]>(() => {
+  const s = props.modelValue?.status
+  if (!s) return []
+  return Array.isArray(s) ? s : [s]
 })
 
-/* =========================
-   CURRENT VALUES
-========================= */
-const currentValues = computed<string[]>(() => {
-  if (!props.modelValue) return []
-  return Array.isArray(props.modelValue)
-    ? props.modelValue
-    : [props.modelValue]
-})
+const isSelected = (option: any): boolean =>
+  currentStatusArr.value.includes(option.value)
 
-const isSelected = (option: any) => {
-  return currentValues.value.includes(option.value)
-}
+// ─────────────────────────────────────────────────────────────
+// SELECTED OPTIONS
+// ─────────────────────────────────────────────────────────────
 
 const selectedOptions = computed(() =>
-  options.value.filter(o => currentValues.value.includes(o.value))
+  options.value.filter(o => currentStatusArr.value.includes(o.value))
 )
 
-/* =========================
-   LOGIC UTAMA: Menentukan option untuk dirender
-========================= */
+// ─────────────────────────────────────────────────────────────
+// AGGREGATE LOGIC
+// Menggabungkan multiple option multi=true menjadi satu renderer
+// ─────────────────────────────────────────────────────────────
 
-// Tambah handler — merge semua option status
-// Simpan per optionValue lalu emit aggregate
+const aggregateOptions = (opts: any[]): any => {
+  if (opts.length === 0) return null
+
+  const withTextarea = opts.filter(o => o.show_textarea === true)
+  const withImage    = opts.filter(o => o.show_image    === true)
+  const withDamage   = opts.filter(o => o.show_damage   === true)
+
+  const result: any = {
+    renderKey:        'aggregated_' + opts.map(o => o.value).join('_'),
+    optionValue:      'aggregated',
+    label:            opts.map(o => o.label).join(' + '),
+    multi:            true,
+    isAggregated:     true,
+    originalOptions:  opts.map(o => o.value),
+
+    show_textarea:        withTextarea.length > 0,
+    show_image:           withImage.length    > 0,
+    show_damage:          withDamage.length   > 0,
+
+    textarea_is_required: false,
+    image_is_required:    false,
+    rich_text:            false,
+    allow_html:           false,
+    rows:                 3,
+    max_length:           null,
+    min_length:           null,
+    max_size:             null,
+    max_files:            null,
+    max_width:            null,
+    max_height:           null,
+    compression_quality:  null,
+    damage_ids:           [],
+    allowed_mimes:        [],
+    placeholder:          null,
+    aspect_ratio:         null,
+    damage_category_id:   null,
+  }
+
+  if (withTextarea.length > 0) {
+    result.textarea_is_required = withTextarea.some(o => o.textarea_is_required === true)
+    result.rich_text             = withTextarea.some(o => o.rich_text  === true)
+    result.allow_html            = withTextarea.some(o => o.allow_html === true)
+    const rows   = withTextarea.map(o => o.rows).filter((v: any) => v != null && !isNaN(v))
+    const maxLen = withTextarea.map(o => o.max_length).filter((v: any) => v != null && !isNaN(v))
+    const minLen = withTextarea.map(o => o.min_length).filter((v: any) => v != null && !isNaN(v))
+    if (rows.length)   result.rows       = Math.max(...rows)
+    if (maxLen.length) result.max_length = Math.max(...maxLen)
+    if (minLen.length) result.min_length = Math.max(...minLen)
+    result.placeholder = withTextarea.find((o: any) => o.placeholder)?.placeholder || null
+  }
+
+  if (withImage.length > 0) {
+    result.image_is_required = withImage.some(o => o.image_is_required === true)
+    const maxSize  = withImage.map(o => o.max_size).filter((v: any) => v != null && !isNaN(v))
+    const maxFiles = withImage.map(o => o.max_files).filter((v: any) => v != null && !isNaN(v))
+    const maxW     = withImage.map(o => o.max_width).filter((v: any) => v != null && !isNaN(v))
+    const maxH     = withImage.map(o => o.max_height).filter((v: any) => v != null && !isNaN(v))
+    const comp     = withImage.map(o => o.compression_quality).filter((v: any) => v != null && !isNaN(v))
+    if (maxSize.length)  result.max_size            = Math.max(...maxSize)
+    if (maxFiles.length) result.max_files           = Math.max(...maxFiles)
+    if (maxW.length)     result.max_width           = Math.max(...maxW)
+    if (maxH.length)     result.max_height          = Math.max(...maxH)
+    if (comp.length)     result.compression_quality = Math.max(...comp)
+    result.aspect_ratio  = withImage.find((o: any) => o.aspect_ratio)?.aspect_ratio || null
+    const allMimes = withImage.flatMap((o: any) => o.allowed_mimes || [])
+    if (allMimes.length) result.allowed_mimes = [...new Set(allMimes)]
+  }
+
+  if (withDamage.length > 0) {
+    const allIds = withDamage.flatMap((o: any) => o.damage_ids || [])
+    if (allIds.length) result.damage_ids = [...new Set(allIds)]
+    result.damage_category_id = withDamage.find((o: any) => o.damage_category_id)?.damage_category_id || null
+  }
+
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────
+// RENDERER OPTIONS
+// Single option → render langsung, Multi options → aggregate jadi satu
+// ─────────────────────────────────────────────────────────────
+
+const rendererOptions = computed(() => {
+  const selected = selectedOptions.value
+  if (selected.length === 0) return []
+
+  const singles = selected.filter(o => !o.multi)
+  const multis  = selected.filter(o => o.multi === true)
+
+  const result: any[] = []
+
+  singles.forEach(option => {
+    if (!option.show_image && !option.show_textarea && !option.show_damage) return
+    result.push({
+      ...option,
+      renderKey:    `single_${option.value}`,
+      optionValue:  'aggregated',
+      isAggregated: false,
+    })
+  })
+
+  if (multis.length > 0) {
+    const aggregated = aggregateOptions(multis)
+    if (aggregated && (aggregated.show_textarea || aggregated.show_image || aggregated.show_damage)) {
+      result.push(aggregated)
+    }
+  }
+
+  return result
+})
+
+// ─────────────────────────────────────────────────────────────
+// NESTED VALUE dari flat modelValue
+// ─────────────────────────────────────────────────────────────
+
+const currentNested = computed(() => {
+  if (!props.modelValue) return null
+  return {
+    note:       props.modelValue.note       ?? null,
+    image:      props.modelValue.image      ?? null,
+    damage_ids: props.modelValue.damage_ids ?? [],
+  }
+})
+
+// ─────────────────────────────────────────────────────────────
+// UPLOAD STATUS (aggregate dari semua renderer)
+// ─────────────────────────────────────────────────────────────
+
 const optionUploadStatuses = ref<Record<string, { hasUploading: boolean; hasFailed: boolean }>>({})
 
 const handleOptionUploadStatus = (optionValue: string, status: { hasUploading: boolean; hasFailed: boolean }) => {
@@ -154,308 +213,234 @@ const handleOptionUploadStatus = (optionValue: string, status: { hasUploading: b
   } else {
     optionUploadStatuses.value[optionValue] = status
   }
-
-  // Emit aggregate: true jika ADA SATU SAJA option yang masih uploading/failed
   const anyUploading = Object.values(optionUploadStatuses.value).some(s => s.hasUploading)
   const anyFailed    = Object.values(optionUploadStatuses.value).some(s => s.hasFailed)
   emit('update:uploadStatus', { hasUploading: anyUploading, hasFailed: anyFailed })
 }
 
-/**
- * Menggabungkan multiple option menjadi SATU option agregat
- * dengan mengambil konfigurasi terbesar/terbanyak
- * HANYA dari option yang benar-benar memiliki show_* = true
- */
-const aggregateOptions = (options: any[]) => {
-  if (options.length === 0) return null
-  
-  // Filter options berdasarkan tipe yang akan di-aggregate
-  const optionsWithTextarea = options.filter(o => o.show_textarea === true)
-  const optionsWithImage = options.filter(o => o.show_image === true)
-  const optionsWithDamage = options.filter(o => o.show_damage === true)
-  
-  const result: any = {
-    // Metadata
-    renderKey: 'aggregated_' + options.map(o => o.value).join('_'),
-    optionValue: 'aggregated',
-    label: options.map(o => o.label).join(' + '),
-    multi: true,
-    isAggregated: true,
-    originalOptions: options.map(o => o.value),
-    
-    // Boolean flags - berdasarkan keberadaan option yang punya show_* = true
-    show_textarea: optionsWithTextarea.length > 0,
-    show_image: optionsWithImage.length > 0,
-    show_damage: optionsWithDamage.length > 0,
-    
-    // Default values untuk field yang mungkin tidak ada
-    textarea_is_required: false,
-    image_is_required: false,
-    rich_text: false,
-    allow_html: false,
-    
-    // Numeric fields - default values
-    rows: 3,
-    max_length: null,
-    min_length: null,
-    max_size: null,
-    max_files: null,
-    max_width: null,
-    max_height: null,
-    compression_quality: null,
-    
-    // Array fields
-    damage_ids: [],
-    allowed_mimes: [],
-    
-    // Single value fields
-    placeholder: null,
-    aspect_ratio: null,
-    damage_category_id: null
-  }
-  
-  // ========== AGGREGATE TEXTAREAS ==========
-  // Hanya proses jika ada option dengan show_textarea = true
-  if (optionsWithTextarea.length > 0) {
-    // Required - OR operation (jika salah satu required maka required)
-    result.textarea_is_required = optionsWithTextarea.some(o => o.textarea_is_required === true)
-    
-    // Rich text - OR operation
-    result.rich_text = optionsWithTextarea.some(o => o.rich_text === true)
-    
-    // Allow HTML - OR operation
-    result.allow_html = optionsWithTextarea.some(o => o.allow_html === true)
-    
-    // Rows - ambil nilai MAX
-    const rowsValues = optionsWithTextarea
-      .map(o => o.rows)
-      .filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (rowsValues.length > 0) {
-      result.rows = Math.max(...rowsValues)
-    }
-    
-    // Max length - ambil nilai MAX
-    const maxLengthValues = optionsWithTextarea
-      .map(o => o.max_length)
-      .filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxLengthValues.length > 0) {
-      result.max_length = Math.max(...maxLengthValues)
-    }
-    
-    // Min length - ambil nilai MAX (karena min yang lebih besar lebih ketat)
-    const minLengthValues = optionsWithTextarea
-      .map(o => o.min_length)
-      .filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (minLengthValues.length > 0) {
-      result.min_length = Math.max(...minLengthValues)
-    }
-    
-    // Placeholder - ambil yang pertama tidak null
-    result.placeholder = optionsWithTextarea.find(o => o.placeholder)?.placeholder || null
-  }
-  
-  // ========== AGGREGATE IMAGES ==========
-  // Hanya proses jika ada option dengan show_image = true
-  if (optionsWithImage.length > 0) {
-    // Required - OR operation
-    result.image_is_required = optionsWithImage.some(o => o.image_is_required === true)
-    
-    // Max size - ambil nilai MAX
-    const maxSizeValues = optionsWithImage
-      .map(o => o.max_size)
-      .filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxSizeValues.length > 0) {
-      result.max_size = Math.max(...maxSizeValues)
-    }
-    
-    // Max files - ambil nilai MAX
-    const maxFilesValues = optionsWithImage
-      .map(o => o.max_files)
-      .filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxFilesValues.length > 0) {
-      result.max_files = Math.max(...maxFilesValues)
-    }
-    
-    // Max width - ambil nilai MAX
-    const maxWidthValues = optionsWithImage
-      .map(o => o.max_width)
-      .filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxWidthValues.length > 0) {
-      result.max_width = Math.max(...maxWidthValues)
-    }
-    
-    // Max height - ambil nilai MAX
-    const maxHeightValues = optionsWithImage
-      .map(o => o.max_height)
-      .filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (maxHeightValues.length > 0) {
-      result.max_height = Math.max(...maxHeightValues)
-    }
-    
-    // Compression quality - ambil nilai MAX
-    const compressionValues = optionsWithImage
-      .map(o => o.compression_quality)
-      .filter(v => v !== undefined && v !== null && !isNaN(v))
-    if (compressionValues.length > 0) {
-      result.compression_quality = Math.max(...compressionValues)
-    }
-    
-    // Aspect ratio - ambil yang pertama tidak null
-    result.aspect_ratio = optionsWithImage.find(o => o.aspect_ratio)?.aspect_ratio || null
-    
-    // Allowed mimes - gabungkan unique
-    const allMimes = optionsWithImage.flatMap(o => o.allowed_mimes || [])
-    if (allMimes.length > 0) {
-      result.allowed_mimes = [...new Set(allMimes)]
-    }
-  }
-  
-  // ========== AGGREGATE DAMAGE ==========
-  // Hanya proses jika ada option dengan show_damage = true
-  if (optionsWithDamage.length > 0) {
-    // Damage IDs - gabungkan unique
-    const allDamageIds = optionsWithDamage.flatMap(o => o.damage_ids || [])
-    if (allDamageIds.length > 0) {
-      result.damage_ids = [...new Set(allDamageIds)]
-    }
-    
-    // Damage category ID - ambil yang pertama tidak null
-    result.damage_category_id = optionsWithDamage.find(o => o.damage_category_id)?.damage_category_id || null
-  }
-  
-  return result
-}
+// ─────────────────────────────────────────────────────────────
+// VALIDASI
+// ─────────────────────────────────────────────────────────────
 
-/**
- * Memisahkan option berdasarkan tipe untuk dirender secara terpisah
- */
-const rendererOptions = computed(() => {
+const computeValid = (): boolean => {
+  const val = props.modelValue
+  if (!val || !val.status || (Array.isArray(val.status) && val.status.length === 0)) {
+    return !props.item.is_required
+  }
+
   const selected = selectedOptions.value
-  
-  if (selected.length === 0) return []
-  
-  // Pisahkan antara single (multi=false) dan multi (multi=true)
-  const singleOptions = selected.filter(o => !o.multi)
-  const multiOptions = selected.filter(o => o.multi === true)
-  
-  const result = []
-  
-  // 1. Single options - dirender satu per satu
-  singleOptions.forEach(option => {
-    result.push({
-      ...option,
-      renderKey: `single_${option.value}`,
-      optionValue: option.value,
-      isAggregated: false
-    })
-  })
-  
-  // 2. Multi options - digabung menjadi SATU aggregated option
-  if (multiOptions.length > 0) {
-    const aggregated = aggregateOptions(multiOptions)
-    if (aggregated) {
-      result.push(aggregated)
+  if (selected.length === 0) return true
+
+  const hasMulti = selected.some(o => o.multi === true)
+
+  if (hasMulti) {
+    // Validasi berdasarkan aggregated option
+    const multis     = selected.filter(o => o.multi === true)
+    const aggregated = aggregateOptions(multis)
+    if (!aggregated) return true
+
+    if (aggregated.show_textarea && aggregated.textarea_is_required) {
+      const note = val.note
+      if (!note || (typeof note === 'string' && note.trim() === '')) return false
+      if (aggregated.min_length && typeof note === 'string' && note.length < Number(aggregated.min_length)) return false
+    }
+    if (aggregated.show_image && aggregated.image_is_required) {
+      const img = val.image
+      if (!img || (Array.isArray(img) && img.length === 0)) return false
+    }
+  } else {
+    // Single option — validasi langsung
+    const opt = selected[0]
+    if (!opt) return true
+
+    if (opt.show_textarea && opt.textarea_is_required) {
+      const note = val.note
+      if (!note || (typeof note === 'string' && note.trim() === '')) return false
+      if (opt.min_length && typeof note === 'string' && note.length < Number(opt.min_length)) return false
+      if (opt.max_length && typeof note === 'string' && note.length > Number(opt.max_length)) return false
+    }
+    if (opt.show_image && opt.image_is_required) {
+      const img = val.image
+      if (!img || (Array.isArray(img) && img.length === 0)) return false
     }
   }
-  
-  return result
-})
 
-/* =========================
-   NESTED VALUES MANAGEMENT
-========================= */
-const getNestedValueForOption = (optionValue: string) => {
-  if (optionValue === 'aggregated') {
-    // Untuk aggregated, kita perlu menggabungkan nilai dari semua option asli?
-    // Atau pakai state terpisah? Saya sarankan pakai state terpisah untuk aggregated
-    return props.nestedValues?.['aggregated'] || null
-  }
-  return props.nestedValues?.[optionValue] || null
+  return true
 }
 
-const getNestedErrorForOption = (optionValue: string) => {
-  if (optionValue === 'aggregated') {
-    return props.nestedErrors?.['aggregated'] || null
-  }
-  return props.nestedErrors?.[optionValue] || null
-}
+watch(() => props.modelValue, () => {
+  emit('update:valid', computeValid())
+}, { deep: true, immediate: true })
 
+// ─────────────────────────────────────────────────────────────
+// SELECT HANDLER
+// ─────────────────────────────────────────────────────────────
 
-/* =========================
-   SELECT LOGIC
-========================= */
 const handleSelect = (option: any) => {
+  if (props.disabled) return
+
   const isMulti = option.multi === true
-  let values = [...currentValues.value]
+  let values    = [...currentStatusArr.value]
 
   if (!isMulti) {
-    // Single mode - reset semua
-    values = [option.value]
-    
-    // Hapus semua nested values untuk multi options yang tidak dipilih
-    // (opsional: bersihkan data aggregated)
-    emit('update:nestedValue', 'aggregated', 'textarea', null)
-    emit('update:nestedValue', 'aggregated', 'image', null)
+    // ── Single option dipilih ──────────────────────────────────
+    // Pertahankan gambar hanya jika option baru dan option lama sama-sama punya show_image
+    const keepImage =
+      option.show_image === true &&
+      selectedOptions.value.some(o => o.show_image === true)
+
+    emit('update:modelValue', {
+      status:      option.value,
+      note:        null,
+      image:       keepImage ? (props.modelValue?.image ?? null) : null,
+      damage_ids:  [],
+    })
+
   } else {
-    // Multi mode
-    const isAlready = values.includes(option.value)
+    // ── Multi option dipilih ───────────────────────────────────
     const hasSingleSelected = values.some(v => {
       const found = options.value.find(o => o.value === v)
       return found && !found.multi
     })
 
     if (hasSingleSelected) {
-      // Reset ke option multi ini saja
+      // Ada single terpilih → bersihkan, mulai dengan multi ini saja
       values = [option.value]
-      
-      // Hapus nested values single options
-      options.value
-        .filter(o => !o.multi && values.includes(o.value))
-        .forEach(o => {
-          emit('update:nestedValue', o.value, 'textarea', null)
-          emit('update:nestedValue', o.value, 'image', null)
-        })
     } else {
+      const isAlready = values.includes(option.value)
       if (isAlready) {
         values = values.filter(v => v !== option.value)
-        
-        // Jika tidak ada multi options tersisa, hapus aggregated data
-        if (values.filter(v => {
-          const found = options.value.find(o => o.value === v)
-          return found && found.multi
-        }).length === 0) {
-          emit('update:nestedValue', 'aggregated', 'textarea', null)
-          emit('update:nestedValue', 'aggregated', 'image', null)
-        }
       } else {
         values.push(option.value)
       }
     }
+
+    if (values.length === 0) {
+      emit('update:modelValue', null)
+      emit('update:error', '')
+      emit('update:valid', !props.item.is_required)
+      return
+    }
+
+    // Pertahankan nested hanya jika masih relevan
+    const newSelected      = options.value.filter(o => values.includes(o.value))
+    const stillHasImage    = newSelected.some(o => o.show_image    === true)
+    const stillHasTextarea = newSelected.some(o => o.show_textarea === true)
+
+    emit('update:modelValue', {
+      status:      values.length === 1 ? values[0]! : values,
+      note:        stillHasTextarea ? (props.modelValue?.note  ?? null) : null,
+      image:       stillHasImage    ? (props.modelValue?.image ?? null) : null,
+      damage_ids:  props.modelValue?.damage_ids ?? [],
+    })
   }
 
-  emit('update:modelValue', values.length === 1 ? values[0] : values)
-  validateField(values)
+  emit('update:error', '')
 }
 
-/* =========================
-   NESTED VALUES HANDLERS
-========================= */
-const handleNestedValueUpdate = (optionValue: string, field: 'textarea' | 'image' | 'damage_ids', value: any) => {
-  emit('update:nestedValue', optionValue, field, value)
+// ─────────────────────────────────────────────────────────────
+// RENDERER VALUE HANDLER
+// ─────────────────────────────────────────────────────────────
+
+const handleRendererValue = (value: { note?: any; image?: any; damage_ids?: number[] }) => {
+  emit('update:modelValue', {
+    status:      props.modelValue?.status ?? '',
+    note:        value.note       ?? null,
+    image:       value.image      ?? null,
+    damage_ids:  value.damage_ids ?? [],
+  })
 }
 
-const handleNestedErrorUpdate = (optionValue: string, field: 'textarea' | 'image', error: string) => {
-  emit('update:nestedError', optionValue, field, error)
-}
+// ─────────────────────────────────────────────────────────────
+// GRID LAYOUT
+// ─────────────────────────────────────────────────────────────
 
-/* =========================
-   VALIDATION
-========================= */
-const validateField = (values: string[]) => {
-  let errorMessage = ''
-  if (props.item.is_required && values.length === 0) {
-    errorMessage = 'Field ini harus diisi'
-  }
-  emit('update:error', errorMessage)
-}
+const gridClass = computed(() => {
+  const count = options.value.length
+  if (count <= 2) return 'grid grid-cols-2 gap-2'
+  if (count === 3) return 'grid grid-cols-3 gap-2'
+  return 'grid grid-cols-3 gap-2'
+})
 </script>
+
+<template>
+  <div class="space-y-2">
+
+    <!-- ================== OPTION LIST ================== -->
+    <div :class="isHorizontal ? gridClass : 'space-y-2'">
+      <div v-for="option in options" :key="option.value">
+
+        <!-- Horizontal (button pill) -->
+        <button
+          v-if="isHorizontal"
+          type="button"
+          :disabled="disabled"
+          @click="handleSelect(option)"
+          :class="[
+            'w-full text-center px-3 py-2 rounded-lg border text-sm font-medium transition-all',
+            isSelected(option)
+              ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+            disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+          ]"
+        >
+          {{ option.label }}
+        </button>
+
+        <!-- Vertical (radio untuk single, checkbox untuk multi) -->
+        <label
+          v-else
+          class="flex items-center space-x-3 cursor-pointer"
+          :class="{ 'opacity-50 cursor-not-allowed': disabled }"
+          @click.prevent="handleSelect(option)"
+        >
+          <input
+            v-if="option.multi"
+            type="checkbox"
+            :checked="isSelected(option)"
+            :disabled="disabled"
+            class="w-4 h-4 text-blue-600 rounded"
+            readonly
+          />
+          <input
+            v-else
+            type="radio"
+            :checked="isSelected(option)"
+            :disabled="disabled"
+            class="w-4 h-4 text-blue-600"
+            readonly
+          />
+          <span class="text-sm font-medium text-gray-700">{{ option.label }}</span>
+        </label>
+
+      </div>
+    </div>
+
+    <!-- ================== NESTED RENDERER ================== -->
+    <!--
+      rendererOptions bisa berisi:
+      - Satu single option (yang punya show_image/show_textarea/show_damage)
+      - Satu aggregated option (gabungan multiple multi-option)
+      - Keduanya sekaligus jika ada single + multi terpilih bersamaan (hybrid case)
+    -->
+    <div class="space-y-2">
+      <OptionRenderer
+        v-for="rendOpt in rendererOptions"
+        :key="rendOpt.renderKey"
+        :option="rendOpt"
+        :inspectionId="inspectionId"
+        :parent-item-id="item.id"
+        :inspection-item-id="item.inspection_item_id"
+        :selected-main-value="modelValue?.status ?? null"
+        :value="currentNested"
+        @update:value="handleRendererValue"
+        @update:error="() => {}"
+        @update:upload-status="(s) => handleOptionUploadStatus(rendOpt.optionValue, s)"
+      />
+    </div>
+
+    <!-- Error -->
+    <p v-if="error" class="text-xs text-red-500 mt-1">{{ error }}</p>
+
+  </div>
+</template>

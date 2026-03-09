@@ -7,14 +7,10 @@
     :model-value="modelValue"
     :metadata="metadata"
     :error="error"
-    :nested-values="nestedValues"
-    :image-nested-values="imageNestedValues"
     :disabled="disabled"
     @update:model-value="$emit('update:modelValue', $event)"
     @update:error="$emit('update:error', $event)"
-    @update:nested-value="(optVal: string, field: string, val: any) => $emit('update:nestedValue', optVal, field, val)"
-    @update:nested-error="(optVal: string, field: string, err: string) => $emit('update:nestedError', optVal, field, err)"
-    @update:image-nested-value="(field: string, val: any) => $emit('update:imageNestedValue', field, val)"
+    @update:valid="$emit('update:valid', $event)"
     @update:upload-status="$emit('update:uploadStatus', $event)"
   />
 </template>
@@ -38,32 +34,18 @@ import ImageInput      from './ImageInput.vue'
 import FileInput       from './FileInput.vue'
 
 const props = defineProps<{
-  item: FormItem
-  inspectionId : number
-  modelValue: any
-  metadata: Metadata
-  error?: string
-  /** nested radio biasa — nestedValues[itemId] */
-  nestedValues?: any
-  /**
-   * imageNestedValues — data nested radio di dalam ImageInput.
-   * nestedValues[`img_${itemId}`]
-   * = { selectedOption, nested: { [optVal]: { textarea, image } } }
-   */
-  imageNestedValues?: any
-  disabled?: boolean
+  item:         FormItem
+  inspectionId: number
+  modelValue:   any
+  metadata:     Metadata
+  error?:       string
+  disabled?:    boolean
 }>()
 
 defineEmits<{
-  (e: 'update:modelValue',       value: any): void
-  (e: 'update:error',            error: string): void
-  (e: 'update:nestedValue',      optionValue: string, field: string, value: any): void
-  (e: 'update:nestedError',      optionValue: string, field: string, error: string): void
-  /**
-   * update:imageNestedValue — dari ImageInput naik ke InspectionSection.
-   * field: 'selectedOption' | `${optionValue}__textarea` | `${optionValue}__image`
-   */
-  (e: 'update:imageNestedValue', field: string, value: any): void
+  (e: 'update:modelValue',   value: any): void
+  (e: 'update:error',        error: string): void
+  (e: 'update:valid',        valid: boolean): void
   (e: 'update:uploadStatus', status: { hasUploading: boolean; hasFailed: boolean }): void
 }>()
 

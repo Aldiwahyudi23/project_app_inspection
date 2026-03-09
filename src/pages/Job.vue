@@ -162,8 +162,8 @@
           <div class="mb-2">
             <div class="bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-xl p-3 border border-gray-200/50">
               <div v-if="job.label.license_plate || job.label.vehicle_name">
-                <p class="font-mono font-bold text-2xl text-gray-800 mt-1 tracking-wider">{{ job.label.license_plate || 'N/A' }}</p>
-                <p class="font-bold text-gray-800 text-base">{{ job.label.vehicle_name || 'Kendaraan tidak tersedia' }}</p>
+                <p class="font-mono font-bold text-lg text-gray-800 mt-1 tracking-wider">{{ job.label.license_plate || 'N/A' }}</p>
+                <p class="font-bold text-gray-800 text-sm">{{ job.label.vehicle_name || 'Kendaraan tidak tersedia' }}</p>
               </div>
               <div v-else class="text-center py-2">
                 <p class="text-gray-400 text-sm">Data kendaraan sudah tidak ada</p>
