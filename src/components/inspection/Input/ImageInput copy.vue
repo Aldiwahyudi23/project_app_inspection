@@ -112,23 +112,8 @@
   <!-- Modals -->
   <ImageSourceModal
     :show="showSourceModal"
-      :has-temp-images="hasTempImages"
-      :temp-count="tempImagesCount"
     @close="showSourceModal = false"
     @select="handleSourceSelect"
-  />
-
-    <!-- Modal assign dari temp gallery — muncul saat user pilih 'Foto Bebas' -->
-  <!-- sections=[] karena mode ini langsung assign ke item aktif (props.item) -->
-  <UnassignedGalleryModal
-    v-if="showTempGallery"
-    :show="showTempGallery"
-    :inspection-id="resolvedInspectionId ?? 0"
-    :sections="[]"
-    :target-item="item"
-    :max-files="remainingSlots"
-    @close="showTempGallery = false"
-    @assigned="handleTempAssigned"
   />
 
   <ImagePreviewModal
@@ -155,8 +140,6 @@ import ImageSourceModal  from './Image/ImageSourceModal.vue'
 import ImagePreviewModal from './Image/ImagePreviewModal.vue'
 import ImageThumbnail   from './Image/ImageThumbnail.vue'
 import RadioInput        from './RadioInput.vue'
-import UnassignedGalleryModal from './Image/Temp/UnassignedGalleryModal.vue'
-import { useTempImageStore } from '../../../stores/useTempImageStore'
 import type { RadioFlatValue } from './RadioInput.vue'
 
 // ─────────────────────────────────────────────────────────────
@@ -194,7 +177,6 @@ const emit = defineEmits<{
 // ─────────────────────────────────────────────────────────────
 
 const store = useImageUploadStore()
-const tempStore = useTempImageStore()
 const { settings: cameraSettings, listenForChanges } = useCameraSettings()
 const localCameraSource        = ref(cameraSettings.value.source)
 const localPreviewBeforeUpload = ref(cameraSettings.value.previewBeforeUpload ?? true)
@@ -236,7 +218,6 @@ watch(
 const settings = computed(() => props.item.settings || {})
 const options  = computed(() => settings.value?.options || [])
 const maxFiles = computed(() => settings.value?.max_files ?? 1)
-const remainingSlots = computed(() => Math.max(0, maxFiles.value - sectionImages.value.length))
 const hasShowOption = computed(() => settings.value?.show_option === true && options.value.length > 0)
 
 const resolvedInspectionId = computed<number | null>(() => {
@@ -248,18 +229,6 @@ const resolvedInspectionId = computed<number | null>(() => {
 const resolvedSectionId = computed(() => props.item.id)
 
 const sectionImages = computed(() => store.getImagesBySection(resolvedSectionId.value))
-
-// Cek apakah ada foto bebas yang belum diassign ke item manapun
-const hasTempImages = computed(() =>
-  resolvedInspectionId.value !== null
-    ? tempStore.hasUnassigned(resolvedInspectionId.value)
-    : false
-)
-const tempImagesCount = computed(() =>
-  resolvedInspectionId.value !== null
-    ? tempStore.unassignedCount(resolvedInspectionId.value)
-    : 0
-)
 
 const firstImage = computed<import('../../../stores/useImageUploadStore').InspectionImage | undefined>(
   () => sectionImages.value[0]
@@ -463,7 +432,6 @@ const handleOptionValidUpdate = (valid: boolean) => {
 const fileInput         = ref<HTMLInputElement | null>(null)
 const showSourceModal   = ref(false)
 const showPreviewModal  = ref(false)
-const showTempGallery   = ref(false)
 const previewStartIndex = ref(0)
 const pendingPreviewImages = ref<any[]>([])
 const isPreviewForNew   = ref(false)
@@ -489,37 +457,7 @@ const handleAddImage = () => {
 
 const handleSourceSelect = (type: string) => {
   showSourceModal.value = false
-    if (type === 'temp') {
-    // Buka galeri foto bebas untuk dipilih ke item ini
-    showTempGallery.value = true
-    return
-  }
   openFileInput(type as 'camera' | 'gallery')
-}
-
-/**
- * Dipanggil saat user memilih foto dari temp gallery untuk di-assign ke item ini.
- * Assign sudah disimpan LOKAL di useTempImageStore (tidak ada request ke server).
- * Di sini kita sync ke ImageUploadStore agar sectionImages computed reaktif
- * dan thumbnail langsung tampil di ImageInput.
- */
-const handleTempAssigned = (
-  _itemId: number,
-  imageData: { id: number; image_url: string; caption: string | null }
-) => {
-  const inspId = resolvedInspectionId.value
-  if (!inspId) return
-
-  // Sync ke ImageUploadStore agar sectionImages computed reaktif
-  store.syncFromServer({
-    serverImages:     [imageData],
-    sectionId:        resolvedSectionId.value,
-    itemId:           props.item.id,
-    inspectionItemId: props.item.inspection_item_id,
-    inspectionId:     inspId,
-  })
-
-  showTempGallery.value = false
 }
 
 const openFileInput = (type: 'camera' | 'gallery') => {

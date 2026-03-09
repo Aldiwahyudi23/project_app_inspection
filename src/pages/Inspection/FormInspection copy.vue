@@ -12,8 +12,6 @@ import CameraSettingsModal  from '../../components/inspection/Input/Image/Camera
 import DamageItemModal      from '../../components/inspection/DamageItemModal.vue'
 import { useCameraSettings }      from '../../composables/useCameraSettings'
 import { useImageUploadStore }    from '../../stores/useImageUploadStore'
-import { useTempImageStore }      from '../../stores/useTempImageStore'
-import UnassignedGalleryModal from '../../components/inspection/Input/Image/Temp/UnassignedGalleryModal.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -28,16 +26,9 @@ const triggeredItems     = ref<Record<number, boolean>>({})
 const showDamageModal    = ref(false)
 const showConfirmModal   = ref(false)
 
-const showCameraSettings  = ref(false)
-const showTempGallery     = ref(false)
+const showCameraSettings = ref(false)
 const { settings: cameraSettings } = useCameraSettings()
-const imageStore  = useImageUploadStore()
-const tempStore   = useTempImageStore()
-
-
-const tempImagesCount = computed(() =>
-  formData.value ? tempStore.unassignedCount(formData.value.inspection.id) : 0
-)
+const imageStore = useImageUploadStore()
 
 // ─────────────────────────────────────────────────────────────
 // CORE STATE
@@ -606,11 +597,6 @@ const loadForm = async (id: number) => {
         storage.saveActiveSection(activeSection.value)
       }
       storage.clearExpired()
-
-      // Load foto bebas (temp) yang belum diassign dari server
-      if (formData.value?.inspection.id) {
-        tempStore.fetchFromServer(formData.value.inspection.id)
-      }
     } else {
       error.value = response.data.message
     }
@@ -712,44 +698,6 @@ const handleDeleteItem = async (itemId: number, inspectionItemId: number) => {
 // ─────────────────────────────────────────────────────────────
 // DAMAGE MODAL
 // ─────────────────────────────────────────────────────────────
-
-/**
- * Dipanggil saat UnassignedGalleryModal assign foto ke item (lokal only).
- * Assign sudah disimpan di useTempImageStore.
- * Di sini kita:
- * 1. Update formValues[itemId] agar thumbnail muncul di ImageInput
- * 2. Sync ke imageStore agar ImageInput reaktif
- * 3. Simpan ke localStorage
- */
-const handleTempAssigned = (
-  itemId: number,
-  imageData: { id: number; image_url: string; caption: string | null }
-) => {
-  const formItem = findItemById(itemId)
-  if (!formItem) return
-
-  // Sync ke imageUploadStore agar ImageInput langsung tampil thumbnail
-  const inspId = formData.value?.inspection.id
-  if (inspId) {
-    imageStore.syncFromServer({
-      serverImages:     [imageData],
-      sectionId:        itemId,
-      itemId:           itemId,
-      inspectionItemId: formItem.inspection_item_id,
-      inspectionId:     inspId,
-    })
-  }
-
-  // Update formValues — append ke array yang sudah ada (cegah duplikat)
-  const currentVal = formValues.value[itemId]
-  const currentArr = Array.isArray(currentVal) ? currentVal : []
-  if (!currentArr.find((i: any) => i.id === imageData.id)) {
-    formValues.value[itemId] = [...currentArr, imageData]
-    saveItemToStorage(itemId)
-    // Update validasi
-    itemValidationStatus.value[itemId] = true
-  }
-}
 
 const handleDamageItemSave = (itemId: number, value: any) => {
   formValues.value[itemId] = value
@@ -859,7 +807,6 @@ const saveForm = async () => {
 
     // ── Reset store gambar setelah submit berhasil ──
     imageStore.clearInspection( formData.value?.inspection.id ?? 0 )
-
     storage.clearStorage()
     router.push('/dashboard/job')
   } catch (err: any) {
@@ -1107,36 +1054,6 @@ onMounted(async () => { await loadForm(inspectionId.value) })
       </div>
     </div>
 
-    <!-- FAB: Foto Cepat -->
-    <Transition name="fab">
-        <div
-          v-if="formData"
-          class="fixed left-4 bottom-6 z-30 flex flex-col items-center gap-1"
-        >
-          <button
-            @click="showTempGallery = true"
-            class="w-14 h-14 bg-blue-500 hover:bg-blue-600 active:scale-95 text-white rounded-full
-                  shadow-lg shadow-blue-200 flex items-center justify-center transition-all duration-200 relative"
-            title="Foto Bebas"
-          >
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586
-                  a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0
-                  00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-            </svg>
-            <span
-              v-if="tempImagesCount > 0"
-              class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-0.5 bg-orange-500 text-white
-                    text-[10px] font-bold rounded-full flex items-center justify-center"
-            >
-              {{ tempImagesCount }}
-            </span>
-          </button>
-          <span class="text-[10px] text-gray-500 font-medium bg-white/80 px-1.5 rounded-full">Foto Bebas</span>
-        </div>
-    </Transition>
-
     <!-- FAB: Tambah Item Kerusakan -->
     <Transition name="fab">
       <button
@@ -1155,23 +1072,13 @@ onMounted(async () => { await loadForm(inspectionId.value) })
     </Transition>
   </div>
 
-  <!-- Unassigned Gallery Modal -->
-  <UnassignedGalleryModal
-    v-if="showTempGallery"
-    :show="showTempGallery"
-    :inspection-id="formData?.inspection.id ?? 0"
-    :sections="sections"
-    @close="showTempGallery = false"
-    @assigned="handleTempAssigned"
-  />
-
   <!-- Damage Item Modal -->
   <DamageItemModal
     :show="showDamageModal"
     :damage-items="emptyDamageItems"
     :values="formValues"
     :metadata="metadata"
-    :inspectionId="inspectionId"
+    :inspectionId="vehicleInfo?.id ?? 0"
     @close="showDamageModal = false"
     @save-item="handleDamageItemSave"
   />

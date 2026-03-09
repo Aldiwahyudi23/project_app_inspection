@@ -60,3 +60,17 @@ export const deleteInspectionItem = async (inspectionId: number, itemId: number)
   const response = await api.delete(`/app-inspection/form-inspection/${inspectionId}/items/${itemId}`)
   return response.data
 }
+
+
+/**
+ * Ambil semua gambar yang belum diassign (inspection_item_id = null) untuk inspeksi ini.
+ *
+ * GET /api/inspections/{inspectionId}/images/unassigned
+ */
+
+export const fetchUnassignedImages = async (
+   inspectionId: number
+  ): Promise<any> => {
+  const response = await api.get(`/app-inspection/form-inspection/${inspectionId}/images/unassigned`)
+  return response
+}
