@@ -2,45 +2,32 @@
 <template>
   <div class="space-y-2">
 
-    <!-- ============================= -->
-    <!-- DAMAGE OPTIONS (DI ATAS) -->
-    <!-- ============================= -->
-    <div v-if="settings.show_damage && damageList.length" class="space-y-2">
-
-      <div class="text-sm font-semibold text-gray-600">
-        Pilih Jenis Kerusakan:
-      </div>
-
-      <div class="flex flex-wrap gap-2">
+    <!-- DAMAGE OPTIONS — tampilan kecil -->
+    <div v-if="settings.show_damage && damageList.length" class="space-y-1">
+      <div class="text-xs text-gray-400 font-medium">Kerusakan:</div>
+      <div class="flex flex-wrap gap-1">
         <div
           v-for="damage in damageList"
           :key="damage.id"
           @click="toggleDamage(damage)"
-          class="px-3 py-1.5 rounded-full border text-sm cursor-pointer transition"
+          class="px-1.5 py-0.5 rounded-full border text-[11px] cursor-pointer transition-all select-none"
           :class="selectedDamageIds.includes(Number(damage.id))
             ? 'bg-blue-500 text-white border-blue-500'
-            : 'bg-white border-gray-300 hover:border-blue-400'"
+            : 'bg-white border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-500'"
         >
           {{ damage.label }}
         </div>
       </div>
-
     </div>
 
-    <!-- ============================= -->
     <!-- RICH TEXT MODE -->
-    <!-- ============================= -->
     <div v-if="settings.rich_text">
-
-      <!-- Toolbar -->
       <div class="flex flex-wrap gap-2 border rounded-lg p-2 bg-gray-50">
         <button type="button" @click="format('bold')" :class="toolbarClass('bold')"><b>B</b></button>
         <button type="button" @click="format('italic')" :class="toolbarClass('italic')"><i>I</i></button>
         <button type="button" @click="format('insertUnorderedList')" :class="toolbarClass('insertUnorderedList')">•</button>
         <button type="button" @click="format('insertOrderedList')" :class="toolbarClass('insertOrderedList')">1.</button>
       </div>
-
-      <!-- Editor -->
       <div
         ref="editor"
         contenteditable="true"
@@ -54,19 +41,15 @@
           ? 'border-red-300 bg-red-50 focus:ring-2 focus:ring-red-400'
           : 'border-gray-200 hover:border-gray-300 focus:ring-2 focus:ring-blue-400'"
       ></div>
-
       <div v-if="settings.rich_text" class="text-xs text-blue-500 flex items-center">
         <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M4 6h16M4 12h16m-7 6h7" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
         </svg>
         Mendukung format teks kaya
       </div>
     </div>
 
-    <!-- ============================= -->
     <!-- NORMAL TEXTAREA -->
-    <!-- ============================= -->
     <textarea
       v-else
       :value="modelValue"
@@ -85,16 +68,17 @@
       ]"
     ></textarea>
 
-    <!-- ============================= -->
     <!-- CHARACTER COUNTER -->
-    <!-- ============================= -->
-    <div v-if="settings.max_length" class="text-xs text-gray-400 text-right">
-      {{ plainTextLength }} / {{ settings.max_length }}
+    <div class="flex justify-between items-center mt-1">
+      <p v-if="props.item.is_required" class="text-xs text-red-400">
+        Wajib di isi
+      </p>
+      <div v-if="settings.max_length" class="text-xs text-gray-400 ml-auto">
+        {{ plainTextLength }} / {{ settings.max_length }}
+      </div>
     </div>
 
-    <!-- ============================= -->
     <!-- ERROR MESSAGE -->
-    <!-- ============================= -->
     <div v-if="error" class="text-xs text-red-500 mt-1 flex items-center">
       <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
         <path fill-rule="evenodd"
@@ -112,71 +96,48 @@ import { ref, computed, watch, onMounted } from 'vue'
 import type { FormItem } from '../../../types/formInspection'
 
 const props = defineProps<{
-  item: FormItem
-  modelValue: string
-  error?: string
-  /**
-   * Dikirim dari OptionRenderer — berisi damage IDs yang aktif
-   * setelah difilter sesuai option yang masih terpilih.
-   * Digunakan untuk sinkronisasi UI pill damage dari luar.
-   */
+  item:             FormItem
+  modelValue:       string
+  error?:           string
   activeDamageIds?: number[] | null
 }>()
 
 const emit = defineEmits([
   'update:modelValue',
   'update:error',
-  'update:damageIds'
+  'update:damageIds',
 ])
 
-const settings  = computed(() => props.item.settings || {})
-const editor    = ref<HTMLElement | null>(null)
-const activeFormats        = ref<Record<string, boolean>>({})
+const settings               = computed(() => props.item.settings || {})
+const editor                 = ref<HTMLElement | null>(null)
+const activeFormats          = ref<Record<string, boolean>>({})
 const lastValueWasFromDamage = ref(false)
 
-/* ===========================
-   DAMAGE DATA SOURCE
-=========================== */
-// const damageList = computed(() => settings.value.damage_ids || [])
-const damageList = computed(() => (settings.value.damage_ids || []) as Array<{ id: number | string; label: string; value: string }>)
-/* ===========================
-   selectedDamageIds — STATE LOKAL
-   Sumber kebenaran UI pill damage.
-   Bisa di-update dari 3 sumber:
-   1. User klik pill (toggleDamage)
-   2. Sync dari modelValue (syncDamageFromText)
-   3. Sync dari activeDamageIds prop (dari OptionRenderer, saat option di-unselect)
-=========================== */
+// ── Damage data ───────────────────────────────────────────────
+const damageList = computed(() =>
+  (settings.value.damage_ids || []) as Array<{ id: number | string; label: string; value: string }>
+)
+
+// ── selectedDamageIds — sumber kebenaran UI pill ──────────────
 const selectedDamageIds = ref<number[]>([])
 
-/* ===========================
-   WATCH activeDamageIds dari luar
-   Ketika OptionRenderer mem-filter damage yang sudah tidak valid
-   (karena option di-unselect), kita update selectedDamageIds lokal.
-=========================== */
+// ── Sync activeDamageIds dari OptionRenderer ──────────────────
 watch(
   () => props.activeDamageIds,
   (newIds) => {
     if (!newIds) return
-
-    const newIdsNormalized = newIds.map(Number)
-
-    // Cek apakah ada perbedaan sebelum update untuk hindari loop
-    const current = [...selectedDamageIds.value].sort().join(',')
-    const incoming = [...newIdsNormalized].sort().join(',')
-
+    const normalized = newIds.map(Number)
+    const current    = [...selectedDamageIds.value].sort().join(',')
+    const incoming   = [...normalized].sort().join(',')
     if (current !== incoming) {
-      selectedDamageIds.value = newIdsNormalized
-      // Tidak perlu emit update:damageIds di sini karena
-      // OptionRenderer sudah emit ke parent saat filter
+      selectedDamageIds.value = normalized
+      // Tidak emit update:damageIds — OptionRenderer sudah handle
     }
   },
   { immediate: true }
 )
 
-/* ===========================
-   PLAIN TEXT LENGTH
-=========================== */
+// ── Plain text length ─────────────────────────────────────────
 const plainTextLength = computed(() => {
   if (!settings.value.rich_text) return (props.modelValue || '').length
   const div = document.createElement('div')
@@ -184,44 +145,28 @@ const plainTextLength = computed(() => {
   return div.innerText.length
 })
 
-/* ===========================
-   PLAIN TEXT EXTRACTION
-=========================== */
+// ── Plain text extraction ─────────────────────────────────────
 const getPlainText = (html: string): string => {
   const div = document.createElement('div')
   div.innerHTML = html || ''
   return div.innerText
 }
 
-/* ===========================
-   NORMALIZE FUNCTIONS
-=========================== */
-const normalizeTextToArray = (text: string): string[] => {
-  return text
-    .split(',')
-    .map(t => t.trim())
-    .filter(t => t.length > 0)
-}
+// ── Normalize helpers — HANYA untuk damage text ───────────────
+const normalizeTextToArray = (text: string): string[] =>
+  text.split(',').map(t => t.trim()).filter(t => t.length > 0)
 
-const joinArrayToText = (arr: string[]): string => {
-  return arr.join(', ')
-}
+const joinArrayToText = (arr: string[]): string => arr.join(', ')
 
-/* ===========================
-   SYNC DAMAGE FROM TEXT
-   Hanya dipakai untuk sync dari modelValue (user ketik manual).
-   Tidak override activeDamageIds dari luar.
-=========================== */
+// ── Sync damage dari teks (ketik manual) ─────────────────────
 const syncDamageFromText = (text: string) => {
-  const plainText  = settings.value.rich_text ? getPlainText(text) : text
-  const textArray  = normalizeTextToArray(plainText)
+  const plainText = settings.value.rich_text ? getPlainText(text) : text
+  const textArray = normalizeTextToArray(plainText)
 
   const newSelectedIds = damageList.value
     .filter(damage => textArray.includes(damage.value.trim()))
     .map(damage => Number(damage.id))
 
-  // Jika activeDamageIds dikirim dari luar, gunakan intersection:
-  // hanya aktifkan damage yang ada di teks DAN masih valid menurut parent
   if (props.activeDamageIds !== undefined && props.activeDamageIds !== null) {
     const validIds = props.activeDamageIds.map(Number)
     selectedDamageIds.value = newSelectedIds.filter(id => validIds.includes(id))
@@ -232,66 +177,99 @@ const syncDamageFromText = (text: string) => {
   emit('update:damageIds', selectedDamageIds.value)
 }
 
-/* ===========================
-   WATCH MODEL VALUE FOR SYNC
-=========================== */
+// ── Watch modelValue ──────────────────────────────────────────
 watch(() => props.modelValue, (newVal) => {
   syncDamageFromText(newVal || '')
-
   if (settings.value.rich_text && editor.value && document.activeElement !== editor.value) {
     editor.value.innerHTML = newVal || ''
   }
 }, { immediate: true })
 
-/* ===========================
-   NORMAL INPUT HANDLER
-=========================== */
+// ── Normal input handler ──────────────────────────────────────
+// TIDAK normalize — biarkan user ketik bebas termasuk spasi
 const handleNormalInput = (e: Event) => {
-  let value = (e.target as HTMLTextAreaElement).value
-
-  const arr = normalizeTextToArray(value)
-  value = joinArrayToText(arr)
-
+  const value = (e.target as HTMLTextAreaElement).value
   emit('update:modelValue', value)
   validateField(value)
+  // Reset flag agar intercept berhenti setelah user mulai ketik manual
+  lastValueWasFromDamage.value = false
 }
 
+// ── Normal keydown handler ────────────────────────────────────
+// FIX UTAMA: spasi (' ') masuk freeKeys → TIDAK PERNAH diintercept
+// Hanya intercept karakter pertama setelah damage dipilih
+// untuk sisipkan ", " otomatis sebelum karakter tersebut.
 const handleNormalKeydown = (e: KeyboardEvent) => {
+  // Key-key ini SELALU bebas, tidak pernah diintercept
+  const freeKeys = [
+    ' ', 'Backspace', 'Delete', 'Enter', 'Tab',
+    'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+    'Home', 'End', 'Escape', 'CapsLock', 'Shift',
+    'Control', 'Alt', 'Meta', 'PageUp', 'PageDown',
+  ]
+
+  if (freeKeys.includes(e.key)) {
+    // Spasi atau Enter → user lanjut ketik, reset flag
+    if (e.key === ' ' || e.key === 'Enter') lastValueWasFromDamage.value = false
+    return
+  }
+
+  // Modifier key kombinasi (ctrl+c, ctrl+v, dll) → biarkan
+  if (e.ctrlKey || e.metaKey || e.altKey) return
+
+  // Hanya intercept jika flag aktif dan ini printable character
   if (!lastValueWasFromDamage.value) return
+  if (e.key.length !== 1) return
 
   const textarea = e.target as HTMLTextAreaElement
   const value    = textarea.value
 
-  if (value.trim().endsWith(',')) {
+  // Jika sudah diakhiri koma → tidak perlu sisipkan lagi, reset flag
+  if (value.trimEnd().endsWith(',')) {
     lastValueWasFromDamage.value = false
     return
   }
 
-  if (e.key.length === 1) {
-    e.preventDefault()
-    const newValue = value.trimEnd() + ', ' + e.key
-    emit('update:modelValue', newValue)
-    lastValueWasFromDamage.value = false
-  }
+  // Sisipkan ", " sebelum karakter yang diketik
+  e.preventDefault()
+  const newValue = value.trimEnd() + ', ' + e.key
+  emit('update:modelValue', newValue)
+  lastValueWasFromDamage.value = false
+
+  // Posisikan cursor ke akhir setelah Vue update DOM
+  requestAnimationFrame(() => {
+    textarea.setSelectionRange(newValue.length, newValue.length)
+  })
 }
 
-/* ===========================
-   RICH TEXT HANDLERS
-=========================== */
+// ── Rich text input handler ───────────────────────────────────
 const handleRichInput = () => {
   if (!editor.value) return
-
-  let html = editor.value.innerHTML
-  if (!settings.value.allow_html) {
-    html = editor.value.innerText
-  }
-
+  const html = settings.value.allow_html
+    ? editor.value.innerHTML
+    : editor.value.innerText
   emit('update:modelValue', html)
   validateField(html)
+  lastValueWasFromDamage.value = false
 }
 
+// ── Rich text keydown handler ─────────────────────────────────
 const handleRichKeydown = (e: KeyboardEvent) => {
+  const freeKeys = [
+    ' ', 'Backspace', 'Delete', 'Enter', 'Tab',
+    'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+    'Home', 'End', 'Escape', 'CapsLock', 'Shift',
+    'Control', 'Alt', 'Meta', 'PageUp', 'PageDown',
+  ]
+
+  if (freeKeys.includes(e.key)) {
+    if (e.key === ' ' || e.key === 'Enter') lastValueWasFromDamage.value = false
+    return
+  }
+
+  if (e.ctrlKey || e.metaKey || e.altKey) return
   if (!lastValueWasFromDamage.value || !editor.value) return
+  if (e.key.length !== 1) return
 
   const selection = window.getSelection()
   if (!selection || !selection.rangeCount) return
@@ -299,27 +277,24 @@ const handleRichKeydown = (e: KeyboardEvent) => {
   const range       = selection.getRangeAt(0)
   const textContent = editor.value.innerText
 
+  // Hanya intercept jika cursor di akhir teks
   const isAtEnd =
     range.endOffset === textContent.length &&
     range.endContainer === editor.value.lastChild
 
   if (!isAtEnd) return
 
-  if (textContent.trim().endsWith(',')) {
+  if (textContent.trimEnd().endsWith(',')) {
     lastValueWasFromDamage.value = false
     return
   }
 
-  if (e.key.length === 1) {
-    e.preventDefault()
-    document.execCommand('insertText', false, ', ' + e.key)
-    lastValueWasFromDamage.value = false
-  }
+  e.preventDefault()
+  document.execCommand('insertText', false, ', ' + e.key)
+  lastValueWasFromDamage.value = false
 }
 
-/* ===========================
-   RICH TEXT FORMAT
-=========================== */
+// ── Rich text format toolbar ──────────────────────────────────
 const format = (command: string) => {
   document.execCommand(command)
   updateToolbarState()
@@ -338,17 +313,13 @@ const toolbarClass = (command: string) => [
   'px-3 py-1 border rounded text-sm',
   activeFormats.value[command]
     ? 'bg-blue-500 text-white border-blue-500'
-    : 'bg-white hover:bg-blue-100'
+    : 'bg-white hover:bg-blue-100',
 ]
 
-/* ===========================
-   VALIDATION
-=========================== */
+// ── Validation ────────────────────────────────────────────────
 const validateField = (value: string) => {
   let errorMsg = ''
-  const length = settings.value.rich_text
-    ? plainTextLength.value
-    : value.length
+  const length = settings.value.rich_text ? plainTextLength.value : value.length
 
   if (props.item.is_required && !length) {
     errorMsg = 'Field ini harus diisi'
@@ -361,14 +332,9 @@ const validateField = (value: string) => {
   emit('update:error', errorMsg)
 }
 
-const validate = () => {
-  validateField(props.modelValue || '')
-}
+const validate = () => validateField(props.modelValue || '')
 
-
-/* ===========================
-   RICH TEXT HELPER - Update teks damage
-=========================== */
+// ── Rich text damage helper ───────────────────────────────────
 const updateRichTextDamage = (damageTexts: string[]) => {
   if (!editor.value) return
 
@@ -379,7 +345,6 @@ const updateRichTextDamage = (damageTexts: string[]) => {
 
   const textNodes: Node[] = []
   const walk = document.createTreeWalker(editor.value, NodeFilter.SHOW_TEXT, null)
-
   let node
   while (node = walk.nextNode()) {
     if (node.textContent?.trim()) textNodes.push(node)
@@ -397,17 +362,13 @@ const updateRichTextDamage = (damageTexts: string[]) => {
     try {
       selection?.removeAllRanges()
       selection?.addRange(savedRange)
-    } catch (e) {
-      // abaikan jika range tidak valid
-    }
+    } catch (_) {}
   }
 
   editor.value.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
-/* ===========================
-   DAMAGE LOGIC
-=========================== */
+// ── Damage toggle ─────────────────────────────────────────────
 const toggleDamage = (damage: any) => {
   const id        = Number(damage.id)
   const valueText = damage.value.trim()
@@ -419,15 +380,11 @@ const toggleDamage = (damage: any) => {
   let currentArray = normalizeTextToArray(currentPlainText)
 
   if (selectedDamageIds.value.includes(id)) {
-    // Uncheck
     selectedDamageIds.value = selectedDamageIds.value.filter(d => d !== id)
     currentArray = currentArray.filter(item => item !== valueText)
   } else {
-    // Check
     selectedDamageIds.value.push(id)
-    if (!currentArray.includes(valueText)) {
-      currentArray.push(valueText)
-    }
+    if (!currentArray.includes(valueText)) currentArray.push(valueText)
   }
 
   const finalPlainText = joinArrayToText(currentArray)
@@ -444,9 +401,7 @@ const toggleDamage = (damage: any) => {
   lastValueWasFromDamage.value = true
 }
 
-/* ===========================
-   MOUNTED
-=========================== */
+// ── Mounted ───────────────────────────────────────────────────
 onMounted(() => {
   if (editor.value && props.modelValue) {
     editor.value.innerHTML = props.modelValue

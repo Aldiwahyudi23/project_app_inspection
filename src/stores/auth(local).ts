@@ -1,17 +1,36 @@
-// stores/auth.ts
+// stores/auth(local).ts
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '../services/api'
+import { Storage } from '../services/storage'
 import type { User, LoginCredentials } from '../types'
 
 export const useAuthStore = defineStore('auth', () => {
-  // State
-  const user = ref<User | null>(JSON.parse(localStorage.getItem('user') || 'null'))
-  const token = ref<string | null>(localStorage.getItem('token'))
+
+  // ============================================================
+  // STATE
+  // ============================================================
+  const user = ref<User | null>(null)
+  const token = ref<string | null>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
-  // Login
+  // ============================================================
+  // INIT — dipanggil sekali saat app pertama buka di main.ts
+  // ============================================================
+  async function initStore() {
+    try {
+      token.value = await Storage.get('token')
+      const savedUser = await Storage.get('user')
+      user.value = savedUser ? JSON.parse(savedUser) : null
+    } catch (err) {
+      console.error('initStore error:', err)
+    }
+  }
+
+  // ============================================================
+  // LOGIN
+  // ============================================================
   async function login(credentials: LoginCredentials) {
     isLoading.value = true
     error.value = null
@@ -19,29 +38,41 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await api.post('/login', credentials)
 
-      // token.value = response.data.data.token
-      // user.value = response.data.data.user
-
-      // localStorage.setItem('token', token.value)
-      // localStorage.setItem('user', JSON.stringify(user.value))
-
-
+      // Ambil token & user dari response
       token.value = response.data.data.token
       user.value = response.data.data.user
 
-      if (token.value) localStorage.setItem('token', token.value)
-      localStorage.setItem('user', JSON.stringify(user.value))
+      // Simpan ke storage (localStorage di web, Preferences di Android)
+      if (token.value) {
+        await Storage.set('token', token.value)
+      }
+      if (user.value) {
+        await Storage.set('user', JSON.stringify(user.value))
+      }
 
       return response.data
+
     } catch (err: any) {
-      error.value = err.response?.data?.message || 'Login failed'
+      // Tangkap semua jenis error
+      if (err.response) {
+        // Error dari server (401, 422, 500, dll)
+        error.value = err.response.data?.message || 'Login gagal'
+      } else if (err.request) {
+        // Request terkirim tapi tidak ada response (network error)
+        error.value = 'Tidak dapat terhubung ke server. Periksa koneksi internet.'
+      } else {
+        // Error lainnya
+        error.value = 'Terjadi kesalahan. Silakan coba lagi.'
+      }
       throw err
     } finally {
       isLoading.value = false
     }
   }
 
-  // Logout
+  // ============================================================
+  // LOGOUT
+  // ============================================================
   async function logout() {
     try {
       await api.post('/logout')
@@ -50,52 +81,58 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       user.value = null
       token.value = null
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      await Storage.remove('token')
+      await Storage.remove('user')
       window.location.href = '/login'
     }
   }
 
-  // Check auth → optimized
+  // ============================================================
+  // CHECK AUTH — untuk route guard
+  // ============================================================
   async function checkAuth() {
-    // 1️⃣ User sudah ada di store → langsung return
+    // Sudah ada di memory → langsung return
     if (user.value && token.value) return true
 
-    // 2️⃣ Cek localStorage
-    const storedUser = localStorage.getItem('user')
-    if (storedUser && token.value) {
-      user.value = JSON.parse(storedUser)
+    // Coba ambil dari storage
+    const savedToken = await Storage.get('token')
+    const savedUser = await Storage.get('user')
+
+    if (savedToken && savedUser) {
+      token.value = savedToken
+      user.value = JSON.parse(savedUser)
       return true
     }
 
-    // 3️⃣ Jika token ada tapi user belum pasti → panggil API
-    if (token.value) {
+    // Token ada tapi user tidak ada → panggil API
+    if (savedToken) {
       try {
+        token.value = savedToken
         const response = await api.get('/user')
         user.value = response.data.data.user
-        localStorage.setItem('user', JSON.stringify(user.value))
+        await Storage.set('user', JSON.stringify(user.value))
         return true
       } catch {
+        // Token tidak valid → bersihkan semua
         user.value = null
         token.value = null
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
+        await Storage.remove('token')
+        await Storage.remove('user')
         return false
       }
     }
 
-    // 4️⃣ Tidak ada token → dianggap logout
     return false
   }
 
-  // Multi-tab logout support
+  // ============================================================
+  // MULTI-TAB LOGOUT (web only)
+  // ============================================================
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (event) => {
       if (event.key === 'token' && event.newValue === null) {
-        // Token dihapus di tab lain → logout di tab ini juga
         user.value = null
         token.value = null
-        localStorage.removeItem('user')
         window.location.href = '/login'
       }
     })
@@ -108,6 +145,7 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     login,
     logout,
-    checkAuth
+    checkAuth,
+    initStore
   }
 })

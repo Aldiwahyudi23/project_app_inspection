@@ -11,6 +11,7 @@ import Profile from '../pages/Profile.vue'
 import JobDetail from '../pages/Job/JobDetail.vue'
 import FormInspection from '../pages/Inspection/FormInspection.vue'
 import Job from '../pages/Job.vue'
+import InspectionReport from '../pages/Inspection/InspectionReport.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -33,15 +34,22 @@ const router = createRouter({
       path: '/jobs/:id', 
       name: 'JobDetail', 
       component: JobDetail, 
-      meta: { title: 'Detail Tugas' },
+      meta: { requiresAuth: true,title: 'Detail Tugas' },
       props: true // ✅ biar :id diteruskan sebagai prop
     },
     {
       path: '/form-inspection/:id', 
       name: 'Form', 
       component: FormInspection, 
-      meta: { title: 'Form Inspection' },
+      meta: { requiresAuth: true, title: 'Form Inspection' },
       props: true // ✅ biar :id diteruskan sebagai prop
+    },
+    {
+      path: '/report/:id', 
+      name: 'Report', 
+      component: InspectionReport, 
+      meta: {requiresAuth: true, title: 'Report Inspection' },
+      props: false
     }
 
   ]

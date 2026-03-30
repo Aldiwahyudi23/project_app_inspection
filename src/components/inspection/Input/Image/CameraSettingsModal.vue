@@ -5,7 +5,7 @@ import type { CameraSource } from '../../../../types/formInspection'
 import { useCameraSettings } from '../../../../composables/useCameraSettings'
 
 interface Props { show: boolean }
-defineProps<Props>()
+const props = defineProps<Props>()
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -32,9 +32,39 @@ const togglePreview = () => {
   emit('update')
 }
 
+// ── Scroll lock ───────────────────────────────────────────────
+let savedScrollY = 0
+
+const lockBodyScroll = () => {
+  savedScrollY                 = window.scrollY
+  document.body.style.position = 'fixed'
+  document.body.style.top      = `-${savedScrollY}px`
+  document.body.style.left     = '0'
+  document.body.style.right    = '0'
+  document.body.style.overflow = 'hidden'
+}
+
+const unlockBodyScroll = () => {
+  document.body.style.position = ''
+  document.body.style.top      = ''
+  document.body.style.left     = ''
+  document.body.style.right    = ''
+  document.body.style.overflow = ''
+  window.scrollTo(0, savedScrollY)
+}
+
+watch(() => props.show, (val) => {
+  if (val) lockBodyScroll()
+  else     unlockBodyScroll()
+}, { immediate: true })
+
+// ── Keyboard ──────────────────────────────────────────────────
 const handleKeydown = (e: KeyboardEvent) => { if (e.key === 'Escape') e.preventDefault() }
 onMounted(()   => document.addEventListener('keydown', handleKeydown))
-onUnmounted(() => document.removeEventListener('keydown', handleKeydown))
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
+  unlockBodyScroll() // safety net
+})
 
 const sourceOptions = [
   { value: 'camera',  label: 'Kamera',       icon: 'camera',   description: 'Ambil foto langsung dari kamera' },

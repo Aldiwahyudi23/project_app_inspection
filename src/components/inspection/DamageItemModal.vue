@@ -192,7 +192,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, reactive } from 'vue'
+import { ref, computed, watch, reactive, onUnmounted } from 'vue'
 import type { Metadata } from '../../types/formInspection'
 import DynamicInput from './Input/DynamicInput.vue'
 
@@ -238,15 +238,42 @@ const openDescription = (item: any) => {
   descriptionModal.show        = true
 }
 
-// ── Reset saat modal dibuka ───────────────────────────────────
+// ── Scroll lock ───────────────────────────────────────────────
+let savedScrollY = 0
+
+const lockBodyScroll = () => {
+  savedScrollY                 = window.scrollY
+  document.body.style.position = 'fixed'
+  document.body.style.top      = `-${savedScrollY}px`
+  document.body.style.left     = '0'
+  document.body.style.right    = '0'
+  document.body.style.overflow = 'hidden'
+}
+
+const unlockBodyScroll = () => {
+  document.body.style.position = ''
+  document.body.style.top      = ''
+  document.body.style.left     = ''
+  document.body.style.right    = ''
+  document.body.style.overflow = ''
+  window.scrollTo(0, savedScrollY)
+}
+
+onUnmounted(() => unlockBodyScroll()) // safety net
+
+// ── Reset + scroll lock saat modal buka/tutup ─────────────────
+
 watch(() => props.show, (val) => {
   if (val) {
-    searchQuery.value  = ''
-    expandedItem.value = null
-    localValues.value  = {}
-    localErrors.value  = {}
-    localValids.value  = {}
+    lockBodyScroll()
+    searchQuery.value     = ''
+    expandedItem.value    = null
+    localValues.value     = {}
+    localErrors.value     = {}
+    localValids.value     = {}
     descriptionModal.show = false
+  } else {
+    unlockBodyScroll()
   }
 })
 

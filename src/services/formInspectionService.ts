@@ -74,3 +74,18 @@ export const fetchUnassignedImages = async (
   const response = await api.get(`/app-inspection/form-inspection/${inspectionId}/images/unassigned`)
   return response
 }
+
+export const assignInspectionImage = async (
+  imageIds:         number[],   // bulk: bisa 1 atau lebih
+  inspectionItemId: number,
+): Promise<any> => {
+  const response = await api.patch(
+    `/app-inspection/form-inspection/images/assign`,
+    {
+      inspection_item_id: inspectionItemId,
+      image_ids:          imageIds,          // [448, 449, 450]
+    }
+  )
+  return response
+}
+

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">cekMobil</string>
+    <string name="title_activity_main">cekMobil</string>
+    <string name="package_name">com.cekMobil.app</string>
+    <string name="custom_url_scheme">com.cekMobil.app</string>
+</resources>

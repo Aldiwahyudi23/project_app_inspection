@@ -22,10 +22,17 @@
              a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0
              00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
       </svg>
-      <p class="text-sm text-gray-600 mt-2">Klik untuk upload gambar {{selectedOptionValue}}</p>
-      <p class="text-xs text-gray-400 mt-1">
-        {{ maxFiles > 1 ? `Maksimal ${maxFiles} gambar` : 'Maksimal 1 gambar' }}
-      </p>
+      <p class="text-sm text-gray-600 mt-2">Klik untuk upload gambar</p>
+      
+    <div class="flex justify-center mt-1">
+        <p v-if="props.item.is_required" class="text-xs text-red-400">
+          Wajib di isi 
+        </p>
+        <p class="text-xs text-gray-400">
+          &nbsp;{{ maxFiles > 1 ? `Maksimal ${maxFiles} gambar` : 'Maksimal 1 gambar' }}
+        </p>
+    </div>
+      
     </div>
 
     <!-- ================= SINGLE MODE ================= -->
@@ -112,8 +119,23 @@
   <!-- Modals -->
   <ImageSourceModal
     :show="showSourceModal"
+      :has-temp-images="hasTempImages"
+      :temp-count="tempImagesCount"
     @close="showSourceModal = false"
     @select="handleSourceSelect"
+  />
+
+    <!-- Modal assign dari temp gallery — muncul saat user pilih 'Foto Bebas' -->
+  <!-- sections=[] karena mode ini langsung assign ke item aktif (props.item) -->
+  <UnassignedGalleryModal
+    v-if="showTempGallery"
+    :show="showTempGallery"
+    :inspection-id="resolvedInspectionId ?? 0"
+    :sections="[]"
+    :target-item="item"
+    :max-files="remainingSlots"
+    @close="showTempGallery = false"
+    @assigned="handleTempAssigned"
   />
 
   <ImagePreviewModal
@@ -129,6 +151,13 @@
     @add-more="handleAddImage"
     @remove-stored="store.removeImage($event)"
   />
+
+  <!-- untuk android capasitor -->
+  <CameraView
+    v-if="showNativeCamera"
+    @photo="handleNativePhoto"
+    @close="showNativeCamera = false"
+  />
 </template>
 
 <script setup lang="ts">
@@ -139,8 +168,13 @@ import { useImageUploadStore }    from '../../../stores/useImageUploadStore'
 import ImageSourceModal  from './Image/ImageSourceModal.vue'
 import ImagePreviewModal from './Image/ImagePreviewModal.vue'
 import ImageThumbnail   from './Image/ImageThumbnail.vue'
+import CameraView from './Image/CameraView.vue'
 import RadioInput        from './RadioInput.vue'
+import UnassignedGalleryModal from './Image/Temp/UnassignedGalleryModal.vue'
+import { useTempImageStore } from '../../../stores/useTempImageStore'
 import type { RadioFlatValue } from './RadioInput.vue'
+import { Capacitor } from '@capacitor/core'
+
 
 // ─────────────────────────────────────────────────────────────
 // PROPS & EMITS
@@ -177,9 +211,14 @@ const emit = defineEmits<{
 // ─────────────────────────────────────────────────────────────
 
 const store = useImageUploadStore()
+const tempStore = useTempImageStore()
 const { settings: cameraSettings, listenForChanges } = useCameraSettings()
 const localCameraSource        = ref(cameraSettings.value.source)
 const localPreviewBeforeUpload = ref(cameraSettings.value.previewBeforeUpload ?? true)
+
+//khusus android capasitor
+const isNative = Capacitor.isNativePlatform()
+const showNativeCamera = ref(false)
 
 let cleanupListener: (() => void) | undefined
 
@@ -218,6 +257,7 @@ watch(
 const settings = computed(() => props.item.settings || {})
 const options  = computed(() => settings.value?.options || [])
 const maxFiles = computed(() => settings.value?.max_files ?? 1)
+const remainingSlots = computed(() => Math.max(0, maxFiles.value - sectionImages.value.length))
 const hasShowOption = computed(() => settings.value?.show_option === true && options.value.length > 0)
 
 const resolvedInspectionId = computed<number | null>(() => {
@@ -229,6 +269,18 @@ const resolvedInspectionId = computed<number | null>(() => {
 const resolvedSectionId = computed(() => props.item.id)
 
 const sectionImages = computed(() => store.getImagesBySection(resolvedSectionId.value))
+
+// Cek apakah ada foto bebas yang belum diassign ke item manapun
+const hasTempImages = computed(() =>
+  resolvedInspectionId.value !== null
+    ? tempStore.hasUnassigned(resolvedInspectionId.value)
+    : false
+)
+const tempImagesCount = computed(() =>
+  resolvedInspectionId.value !== null
+    ? tempStore.unassignedCount(resolvedInspectionId.value)
+    : 0
+)
 
 const firstImage = computed<import('../../../stores/useImageUploadStore').InspectionImage | undefined>(
   () => sectionImages.value[0]
@@ -432,6 +484,7 @@ const handleOptionValidUpdate = (valid: boolean) => {
 const fileInput         = ref<HTMLInputElement | null>(null)
 const showSourceModal   = ref(false)
 const showPreviewModal  = ref(false)
+const showTempGallery   = ref(false)
 const previewStartIndex = ref(0)
 const pendingPreviewImages = ref<any[]>([])
 const isPreviewForNew   = ref(false)
@@ -457,15 +510,75 @@ const handleAddImage = () => {
 
 const handleSourceSelect = (type: string) => {
   showSourceModal.value = false
+    if (type === 'temp') {
+    // Buka galeri foto bebas untuk dipilih ke item ini
+    showTempGallery.value = true
+    return
+  }
   openFileInput(type as 'camera' | 'gallery')
 }
 
+/**
+ * Dipanggil saat user memilih foto dari temp gallery untuk di-assign ke item ini.
+ * Assign sudah disimpan LOKAL di useTempImageStore (tidak ada request ke server).
+ * Di sini kita sync ke ImageUploadStore agar sectionImages computed reaktif
+ * dan thumbnail langsung tampil di ImageInput.
+ */
+const handleTempAssigned = (
+  _itemId: number,
+  imageData: { id: number; image_url: string; caption: string | null }
+) => {
+  const inspId = resolvedInspectionId.value
+  if (!inspId) return
+
+  // Sync ke ImageUploadStore agar sectionImages computed reaktif
+  store.syncFromServer({
+    serverImages:     [imageData],
+    sectionId:        resolvedSectionId.value,
+    itemId:           props.item.id,
+    inspectionItemId: props.item.inspection_item_id,
+    inspectionId:     inspId,
+  })
+
+  showTempGallery.value = false
+}
+
+// const openFileInput = (type: 'camera' | 'gallery') => {
+//   if (!fileInput.value) return
+//   fileInput.value.value = ''
+//   fileInput.value.removeAttribute('capture')
+//   if (type === 'camera') fileInput.value.setAttribute('capture', 'environment')
+//   nextTick(() => fileInput.value?.click())
+// }
+
 const openFileInput = (type: 'camera' | 'gallery') => {
+  // Android + kamera → pakai Capacitor camera custom
+  if (isNative && type === 'camera') {
+    showNativeCamera.value = true
+    return
+  }
+
+  // Browser / galeri → tetap pakai input file biasa (tidak berubah)
   if (!fileInput.value) return
   fileInput.value.value = ''
   fileInput.value.removeAttribute('capture')
   if (type === 'camera') fileInput.value.setAttribute('capture', 'environment')
   nextTick(() => fileInput.value?.click())
+}
+
+const handleNativePhoto = (base64: string) => {
+  showNativeCamera.value = false
+
+  // Convert base64 → File object (sama seperti file input biasa)
+  const byteString = atob(base64)
+  const ab = new ArrayBuffer(byteString.length)
+  const ia = new Uint8Array(ab)
+  for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i)
+  const blob = new Blob([ab], { type: 'image/jpeg' })
+  const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
+
+  // Masuk ke processFiles() yang sudah ada — tidak ada perubahan di sini
+  processFiles([file])
 }
 
 const handleFileSelect = (e: Event) => {

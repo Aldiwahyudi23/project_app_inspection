@@ -69,6 +69,10 @@ export interface Transmission {
   name: string;
   description: string;
 }
+export interface Document {
+  inspection_code: string;
+  has_document: boolean;
+}
 
 export interface Vehicle {
   license_plate: string;
@@ -108,6 +112,7 @@ export interface JobDetail {
   submitted_by: SubmittedBy;
   vehicle: Vehicle;
   template: Template;
+  document: Document;
 }
 
 export interface JobDetailResponse {

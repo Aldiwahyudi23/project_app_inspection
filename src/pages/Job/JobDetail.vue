@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import jobService from '../../services/jobService'
 import type { JobDetail, NextJobStatus } from '../../types/job'
+import { downloadPDF, previewPDF } from '../../services/inspectionReportService'
 
 const route = useRoute()
 const router = useRouter()
@@ -103,9 +104,6 @@ const fetchJobDetail = async () => {
   }
 }
 
-const goBack = () => {
-  router.back()
-}
 
 // Handler untuk tombol kiri (cancel_actions)
 const handleLeftAction = () => {
@@ -162,7 +160,7 @@ const handleMainAction = async () => {
   
   if (finalStatuses.includes(currentStatus)) {
     // Jika status final, langsung ke halaman hasil inspeksi
-    router.push(`/inspection-result/${jobId}`)
+    router.push(`/report/${jobId}`)
     return
   }
   
@@ -372,6 +370,86 @@ const showSubmitted = computed(() => {
   return inspection.value.inspector.name !== inspection.value.submitted_by.name
 })
 
+const showDocumentActions = computed(() => {
+  if (!inspection.value) return false
+  const validStatus  = ['approved', 'completed'].includes(inspection.value.status)
+  const hasDocument  = inspection.value.document?.has_document === true
+  return validStatus && hasDocument
+})
+
+const downloadingPDF = ref(false)
+const previewingPDF  = ref(false)
+
+const handleDownloadPDF = async () => {
+  if (!inspection.value) return
+  downloadingPDF.value = true
+  try {
+    const response = await downloadPDF(Number(jobId))
+    
+    console.log('Response:', response)
+    console.log('Response data:', response.data)
+    console.log('Response type:', typeof response.data)
+    console.log('Content-Type:', response.headers?.['content-type'])
+    
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    console.log('Blob size:', blob.size)
+    
+    const url = URL.createObjectURL(blob)
+    const a   = document.createElement('a')
+    a.href    = url
+    a.download = `laporan_inspeksi_${inspection.value.vehicle.license_plate ?? jobId}.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    console.error('Download error:', e)
+    console.error('Error response:', e?.response)
+    console.error('Error response data:', e?.response?.data)
+    alert(e?.response?.data?.message ?? 'Gagal mengunduh PDF')
+  } finally {
+    downloadingPDF.value = false
+  }
+}
+const handlePreviewPDF = async () => {
+  if (!inspection.value) return
+  previewingPDF.value = true
+  try {
+    const response = await previewPDF(Number(jobId))
+    const blob     = new Blob([response.data], { type: 'application/pdf' })
+    const url      = URL.createObjectURL(blob)
+    window.open(url, '_blank')
+    // Delay revoke agar tab sempat load
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
+  } catch (e: any) {
+    alert(e?.response?.data?.message ?? 'Gagal membuka PDF')
+  } finally {
+    previewingPDF.value = false
+  }
+}
+
+const codeCopied = ref(false)
+
+const copyCode = async () => {
+  const code = inspection.value?.document?.inspection_code
+  if (!code) return
+  try {
+    await navigator.clipboard.writeText(code)
+    codeCopied.value = true
+    setTimeout(() => { codeCopied.value = false }, 2000)
+  } catch {
+    // Fallback untuk browser yang tidak support clipboard API
+    const el       = document.createElement('textarea')
+    el.value       = code
+    el.style.position = 'fixed'
+    el.style.opacity  = '0'
+    document.body.appendChild(el)
+    el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+    codeCopied.value = true
+    setTimeout(() => { codeCopied.value = false }, 2000)
+  }
+}
+
 onMounted(() => {
   fetchJobDetail()
 })
@@ -382,7 +460,7 @@ onMounted(() => {
     <!-- Header dengan tombol back -->
     <div class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-4 py-4 shadow-lg sticky top-0 z-10">
       <div class="flex items-center">
-        <button @click="goBack" class="mr-3 p-2 hover:bg-white/20 rounded-full transition-colors">
+        <button @click="router.push(`/dashboard/job`)" class="mr-3 p-2 hover:bg-white/20 rounded-full transition-colors">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
           </svg>
@@ -579,6 +657,79 @@ onMounted(() => {
               </div>
             </div>
           </div>
+
+<!-- Dokumen Laporan -->
+<div v-if="showDocumentActions" class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+  <h3 class="text-xs font-semibold text-gray-400 mb-3 flex items-center">
+    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586
+           a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+    </svg>
+    DOKUMEN LAPORAN
+  </h3>
+
+  <!-- Inspection Code -->
+  <div class="mb-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+    <p class="text-xs text-blue-500 mb-1">Kode Inspeksi</p>
+    <div class="flex items-center justify-between gap-2">
+      <span class="font-mono font-bold text-blue-700 tracking-widest text-sm">
+        {{ inspection.document.inspection_code }}
+      </span>
+      <button
+        @click="copyCode"
+        class="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700
+               bg-white border border-blue-200 px-2 py-1 rounded-lg transition-colors"
+      >
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2
+               m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+        </svg>
+        {{ codeCopied ? 'Tersalin!' : 'Salin' }}
+      </button>
+    </div>
+    <p class="text-xs text-blue-400 mt-2 leading-relaxed">
+      Gunakan kode ini untuk mengakses laporan inspeksi.
+    </p>
+  </div>
+
+  <!-- Tombol Preview & Download -->
+  <div class="flex gap-3">
+    <button
+      @click="handlePreviewPDF"
+      :disabled="previewingPDF"
+      class="flex-1 flex items-center justify-center gap-2 py-3 px-4
+             bg-blue-50 border border-blue-200 text-blue-600 rounded-xl
+             font-medium text-sm transition-colors
+             hover:bg-blue-100 active:scale-95 disabled:opacity-50"
+    >
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943
+             9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+      </svg>
+      <span>{{ previewingPDF ? 'Membuka...' : 'Review PDF' }}</span>
+    </button>
+
+    <button
+      @click="handleDownloadPDF"
+      :disabled="downloadingPDF"
+      class="flex-1 flex items-center justify-center gap-2 py-3 px-4
+             bg-green-50 border border-green-200 text-green-600 rounded-xl
+             font-medium text-sm transition-colors
+             hover:bg-green-100 active:scale-95 disabled:opacity-50"
+    >
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      <span>{{ downloadingPDF ? 'Mengunduh...' : 'Download PDF' }}</span>
+    </button>
+  </div>
+</div>
 
           <!-- TAB SPESIFIKASI -->
           <div v-if="activeTab === 'spesifikasi'" class="space-y-4">

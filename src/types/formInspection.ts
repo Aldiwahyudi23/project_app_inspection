@@ -228,6 +228,19 @@ export interface FormInspectionData {
   existing_results: any[];
   validation_config: ValidationConfig;
   metadata: Metadata;
+
+  vehicle_detail?: {
+    brand?:         any
+    model?:         any
+    type?:          any
+    year?:          number | null
+    cc?:            any
+    transmission?:  any
+    fuel_type?:     string | null
+    market_period?: string | null
+    vehicle_id?:    number | null
+    vehicle_name?:  string | null
+  } | null
 }
 
 export interface FormDataResponse {

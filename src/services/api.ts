@@ -1,41 +1,43 @@
+// services/api.ts
 import axios from 'axios'
+import { Storage } from './storage' // ← import helper
 
 const api = axios.create({
-    baseURL: 'http://localhost:8000/api',
-    //  baseURL: 'https://management.cekmobil.online/api',
-    headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-    },
-    withCredentials: true,
-    withXSRFToken: true
+  // baseURL: 'http://127.0.0.1:8000/api',
+  baseURL: 'https://management.cekmobil.online/api',
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  },
+  withCredentials: true,
+  withXSRFToken: true
 })
 
-// Request interceptor untuk tambah token
+// ✅ Request interceptor - pakai Storage universal (async)
 api.interceptors.request.use(
-    (config) => {
-        const token = localStorage.getItem('token')
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`
-        }
-        return config
-    },
-    (error) => {
-        return Promise.reject(error)
+  async (config) => {
+    const token = await Storage.get('token') // ← ganti dari localStorage
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
     }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
 )
 
-// Response interceptor
+// ✅ Response interceptor - pakai Storage universal (async)
 api.interceptors.response.use(
-    (response) => response,
-    (error) => {
-        if (error.response?.status === 401) {
-            localStorage.removeItem('token')
-            localStorage.removeItem('user')
-            window.location.href = '/login'
-        }
-        return Promise.reject(error)
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      await Storage.remove('token') // ← ganti dari localStorage
+      await Storage.remove('user')  // ← ganti dari localStorage
+      window.location.href = '/login'
     }
+    return Promise.reject(error)
+  }
 )
 
 export default api

@@ -12,6 +12,9 @@ import CameraSettingsModal  from '../../components/inspection/Input/Image/Camera
 import DamageItemModal      from '../../components/inspection/DamageItemModal.vue'
 import { useCameraSettings }      from '../../composables/useCameraSettings'
 import { useImageUploadStore }    from '../../stores/useImageUploadStore'
+import { useTempImageStore }      from '../../stores/useTempImageStore'
+import { useDraggableFab }          from '../../composables/useDraggableFab'
+import UnassignedGalleryModal from '../../components/inspection/Input/Image/Temp/UnassignedGalleryModal.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -26,9 +29,71 @@ const triggeredItems     = ref<Record<number, boolean>>({})
 const showDamageModal    = ref(false)
 const showConfirmModal   = ref(false)
 
-const showCameraSettings = ref(false)
+const showCameraSettings  = ref(false)
+const showTempGallery     = ref(false)
 const { settings: cameraSettings } = useCameraSettings()
-const imageStore = useImageUploadStore()
+const imageStore  = useImageUploadStore()
+const tempStore   = useTempImageStore()
+
+
+const tempImagesCount = computed(() =>
+  formData.value ? tempStore.unassignedCount(formData.value.inspection.id) : 0
+)
+
+// untuk mengatur posisi tombol ngambang 
+  // FAB Foto Bebas (biru) — kiri bawah
+  const {
+    position:    fabTempPos,
+    isDimmed:    fabTempDimmed,
+    attachTo:    fabTempAttach,
+    // detachFrom:  fabTempDetach,
+    shouldClick: fabTempShouldClick,
+  } = useDraggableFab({
+    storageKey:        'fab-pos-temp-gallery',
+    defaultPos:        { x: 16, y: window.innerHeight - 80 },
+    fabSize:           56,
+    longPressDuration: 500,
+  })
+
+  // FAB Damage (merah)
+  const {
+    position:    fabDamagePos,
+    isDimmed:    fabDamageDimmed,
+    attachTo:    fabDamageAttach,
+    detachFrom:  fabDamageDetach,
+    shouldClick: fabDamageShouldClick,
+  } = useDraggableFab({
+    storageKey:        'fab-pos-damage',
+    defaultPos:        { x: window.innerWidth - 72, y: window.innerHeight - 80 },
+    fabSize:           56,
+    longPressDuration: 500,
+  })
+
+  // Template refs untuk wrapper div FAB
+  const fabTempEl   = ref<HTMLElement | null>(null)
+  const fabDamageEl = ref<HTMLElement | null>(null)
+
+  // Attach event listeners setelah mount
+  // Pakai watch karena FAB damage muncul kondisional (v-if)
+
+  watch(fabTempEl, (el) => {
+    if (el) fabTempAttach(el)
+  })
+
+  watch(fabDamageEl, (el, oldEl) => {
+    if (oldEl) fabDamageDetach(oldEl)
+    if (el)    fabDamageAttach(el)
+  })
+
+  const handleFabTempClick = () => {
+    if (!fabTempShouldClick()) return
+    showTempGallery.value = true
+  }
+
+  const handleFabDamageClick = () => {
+    if (!fabDamageShouldClick()) return
+    showDamageModal.value = true
+  }
 
 // ─────────────────────────────────────────────────────────────
 // CORE STATE
@@ -341,7 +406,6 @@ const toggleSectionHiddenItems = (sectionId: number) => {
   showHiddenSections.value = { ...showHiddenSections.value, [sectionId]: !showHiddenSections.value[sectionId] }
 }
 
-const inspectionIdExternal = computed(() => formData.value?.inspection.id ?? null)
 const vehicleInfo          = computed(() => formData.value?.inspection)
 const metadata             = computed(() => formData.value?.metadata || { damage_categories: [], transmissions: [] })
 
@@ -597,6 +661,11 @@ const loadForm = async (id: number) => {
         storage.saveActiveSection(activeSection.value)
       }
       storage.clearExpired()
+
+      // Load foto bebas (temp) yang belum diassign dari server
+      if (formData.value?.inspection.id) {
+        tempStore.fetchFromServer(formData.value.inspection.id)
+      }
     } else {
       error.value = response.data.message
     }
@@ -698,6 +767,44 @@ const handleDeleteItem = async (itemId: number, inspectionItemId: number) => {
 // ─────────────────────────────────────────────────────────────
 // DAMAGE MODAL
 // ─────────────────────────────────────────────────────────────
+
+/**
+ * Dipanggil saat UnassignedGalleryModal assign foto ke item (lokal only).
+ * Assign sudah disimpan di useTempImageStore.
+ * Di sini kita:
+ * 1. Update formValues[itemId] agar thumbnail muncul di ImageInput
+ * 2. Sync ke imageStore agar ImageInput reaktif
+ * 3. Simpan ke localStorage
+ */
+const handleTempAssigned = (
+  itemId: number,
+  imageData: { id: number; image_url: string; caption: string | null }
+) => {
+  const formItem = findItemById(itemId)
+  if (!formItem) return
+
+  // Sync ke imageUploadStore agar ImageInput langsung tampil thumbnail
+  const inspId = formData.value?.inspection.id
+  if (inspId) {
+    imageStore.syncFromServer({
+      serverImages:     [imageData],
+      sectionId:        itemId,
+      itemId:           itemId,
+      inspectionItemId: formItem.inspection_item_id,
+      inspectionId:     inspId,
+    })
+  }
+
+  // Update formValues — append ke array yang sudah ada (cegah duplikat)
+  const currentVal = formValues.value[itemId]
+  const currentArr = Array.isArray(currentVal) ? currentVal : []
+  if (!currentArr.find((i: any) => i.id === imageData.id)) {
+    formValues.value[itemId] = [...currentArr, imageData]
+    saveItemToStorage(itemId)
+    // Update validasi
+    itemValidationStatus.value[itemId] = true
+  }
+}
 
 const handleDamageItemSave = (itemId: number, value: any) => {
   formValues.value[itemId] = value
@@ -807,6 +914,7 @@ const saveForm = async () => {
 
     // ── Reset store gambar setelah submit berhasil ──
     imageStore.clearInspection( formData.value?.inspection.id ?? 0 )
+
     storage.clearStorage()
     router.push('/dashboard/job')
   } catch (err: any) {
@@ -915,7 +1023,7 @@ onMounted(async () => { await loadForm(inspectionId.value) })
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <h1 class="text-sm font-semibold">Form Inspeksi {{ inspectionIdExternal }}</h1>
+          <h1 class="text-sm font-semibold">Form Inspeksi</h1>
         </div>
         <div class="flex items-center space-x-3">
           <div class="text-sm">
@@ -1054,23 +1162,118 @@ onMounted(async () => { await loadForm(inspectionId.value) })
       </div>
     </div>
 
-    <!-- FAB: Tambah Item Kerusakan -->
-    <Transition name="fab">
+        <!-- Dim overlay FAB Temp -->
+  <Transition name="fab-dim">
+    <div
+      v-if="fabTempDimmed"
+      class="fixed inset-0 z-[39] bg-black/40 pointer-events-none"
+    />
+  </Transition>
+
+  <!-- FAB Temp draggable -->
+  <div
+    ref="fabTempEl"
+    class="fixed z-40 touch-none select-none"
+    :style="{ left: fabTempPos.x + 'px', top: fabTempPos.y + 'px' }"
+  >
+    <div
+      class="absolute inset-0 rounded-full transition-all duration-200"
+      :class="fabTempDimmed ? 'ring-4 ring-white/70 ring-offset-2 scale-110' : ''"
+    />
+    <button
+      @click="handleFabTempClick"
+      class="relative w-14 h-14 bg-blue-500 text-white rounded-full shadow-lg
+             flex items-center justify-center transition-transform duration-200"
+      :class="fabTempDimmed ? 'scale-110 bg-blue-600 cursor-grabbing' : 'active:scale-95'"
+    >
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07
+             4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012
+             2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+      <div
+        v-if="tempImagesCount > 0"
+        class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-orange-500
+               text-white text-[10px] font-bold rounded-full flex items-center justify-center"
+      >
+        {{ tempImagesCount }}
+      </div>
+    </button>
+    <Transition name="fab-hint">
+      <div
+        v-if="fabTempDimmed"
+        class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap
+               bg-black/70 text-white text-[10px] px-2 py-1 rounded-full pointer-events-none"
+      >
+        Seret untuk pindah
+      </div>
+    </Transition>
+  </div>
+
+
+<!-- FAB DAMAGE (merah) — sama, ganti dengan ref: -->
+
+  <!-- Dim overlay FAB Damage -->
+  <Transition name="fab-dim">
+    <div
+      v-if="fabDamageDimmed"
+      class="fixed inset-0 z-[39] bg-black/40 pointer-events-none"
+    />
+  </Transition>
+
+  <!-- FAB Damage draggable -->
+  <Transition name="fab">
+    <div
+      v-if="formData && emptyDamageItems.length > 0"
+      ref="fabDamageEl"
+      class="fixed z-40 touch-none select-none"
+      :style="{ left: fabDamagePos.x + 'px', top: fabDamagePos.y + 'px' }"
+    >
+      <div
+        class="absolute inset-0 rounded-full transition-all duration-200"
+        :class="fabDamageDimmed ? 'ring-4 ring-white/70 ring-offset-2 scale-110' : ''"
+      />
       <button
-        v-if="formData && emptyDamageItems.length > 0"
-        @click="showDamageModal = true"
-        class="fixed right-4 bottom-6 z-30 w-14 h-14 bg-red-500 hover:bg-red-600 active:scale-95 text-white rounded-full shadow-lg shadow-red-200 flex items-center justify-center transition-all duration-200"
+        @click="handleFabDamageClick"
+        class="relative w-14 h-14 bg-red-500 text-white rounded-full shadow-lg shadow-red-200
+               flex items-center justify-center transition-transform duration-200"
+        :class="fabDamageDimmed ? 'scale-110 bg-red-600 cursor-grabbing' : 'hover:bg-red-600 active:scale-95'"
         title="Tambah Item Kerusakan"
       >
         <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
         </svg>
-        <span class="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1 bg-white text-red-600 text-xs font-bold rounded-full flex items-center justify-center shadow border-2 border-red-500">
+        <!-- <span class="absolute -top-1.5 -right-1.5 min-w-[22px] h-[22px] px-1 bg-white text-red-600
+                     text-xs font-bold rounded-full flex items-center justify-center shadow border-2 border-red-500">
           {{ emptyDamageItems.length }}
-        </span>
+        </span> -->
       </button>
-    </Transition>
+      <Transition name="fab-hint">
+        <div
+          v-if="fabDamageDimmed"
+          class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap
+                 bg-black/70 text-white text-[10px] px-2 py-1 rounded-full pointer-events-none"
+        >
+          Seret untuk pindah
+        </div>
+      </Transition>
+    </div>
+  </Transition>
+
   </div>
+
+  <!-- Unassigned Gallery Modal -->
+  <UnassignedGalleryModal
+    v-if="showTempGallery"
+    :show="showTempGallery"
+    :inspection-id="formData?.inspection.id ?? 0"
+    :sections="sections"
+    @close="showTempGallery = false"
+    @assigned="handleTempAssigned"
+  />
 
   <!-- Damage Item Modal -->
   <DamageItemModal
@@ -1078,7 +1281,7 @@ onMounted(async () => { await loadForm(inspectionId.value) })
     :damage-items="emptyDamageItems"
     :values="formValues"
     :metadata="metadata"
-    :inspectionId="vehicleInfo?.id ?? 0"
+    :inspectionId="inspectionId"
     @close="showDamageModal = false"
     @save-item="handleDamageItemSave"
   />
@@ -1101,4 +1304,10 @@ html { scroll-behavior: smooth; }
 
 .fade-enter-active, .fade-leave-active { transition: all 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(-6px); }
+
+.fab-dim-enter-active, .fab-dim-leave-active { transition: opacity 0.25s ease; }
+.fab-dim-enter-from,   .fab-dim-leave-to     { opacity: 0; }
+
+.fab-hint-enter-active, .fab-hint-leave-active { transition: opacity 0.2s ease; }
+.fab-hint-enter-from,   .fab-hint-leave-to     { opacity: 0; }
 </style>

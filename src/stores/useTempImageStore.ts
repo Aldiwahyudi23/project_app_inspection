@@ -5,16 +5,11 @@ import {
   uploadInspectionImages,
   fetchUnassignedImages,
   deleteInspectionImage,
+  assignInspectionImage,
 } from '../services/formInspectionService'
 
 const uploadTempImage = (inspectionId: number, file: File) =>
-  uploadInspectionImages(
-    inspectionId,
-    0,
-    [file],
-    0,
-    null
-  )
+  uploadInspectionImages(inspectionId, 0, [file], 0, null)
 
 export type TempImageStatus = 'pending' | 'uploading' | 'done' | 'failed'
 
@@ -75,22 +70,11 @@ export const useTempImageStore = defineStore('tempImage', () => {
   const getByInspection = (inspectionId: number) =>
     images.value.filter(img => img.inspectionId === inspectionId)
 
-  /**
-   * Semua gambar yang belum diassign ke item manapun — SEMUA STATUS.
-   * Dipakai oleh UnassignedGalleryModal untuk menampilkan grid termasuk
-   * foto yang masih pending/uploading/failed agar user bisa lihat prosesnya.
-   */
   const getUnassigned = (inspectionId: number) =>
     images.value.filter(
-      img => img.inspectionId === inspectionId
-          && !img.assignedToItemId
+      img => img.inspectionId === inspectionId && !img.assignedToItemId
     )
 
-  /**
-   * Hanya hitung foto yang sudah DONE dan belum diassign.
-   * Dipakai untuk badge FAB di InspectionFormView — hanya foto siap pakai
-   * yang relevan untuk ditampilkan sebagai "perlu diassign".
-   */
   const hasUnassigned = (inspectionId: number) =>
     images.value.some(
       img => img.inspectionId === inspectionId
@@ -109,28 +93,28 @@ export const useTempImageStore = defineStore('tempImage', () => {
     images.value.filter(img => img.status === 'pending' || img.status === 'uploading').length
   )
 
-  // ── Fetch dari server saat buka form ─────────────────────
+  // ── Fetch dari server ─────────────────────────────────────
 
   const fetchFromServer = async (inspectionId: number): Promise<void> => {
     try {
-      const result        = await fetchUnassignedImages(inspectionId)
+      const result              = await fetchUnassignedImages(inspectionId)
       const serverImages: any[] = result?.data?.data ?? result?.data ?? []
 
       images.value = images.value.filter(img => img.inspectionId !== inspectionId)
 
       for (const img of serverImages) {
         images.value.push({
-          localId:           generateLocalId(),
-          serverId:          img.id,
-          url:               img.image_url,
-          imageUrl:          img.image_url,
-          caption:           img.caption ?? null,
-          status:            'done',
+          localId:          generateLocalId(),
+          serverId:         img.id,
+          url:              img.image_url,
+          imageUrl:         img.image_url,
+          caption:          img.caption ?? null,
+          status:           'done',
           inspectionId,
-          inspectionItemId:  img.inspection_item_id ?? null,
-          assignedToItemId:  null,
-          rotation:          0,
-          addedAt:           new Date(img.created_at ?? Date.now()).getTime(),
+          inspectionItemId: img.inspection_item_id ?? null,
+          assignedToItemId: null,
+          rotation:         0,
+          addedAt:          new Date(img.created_at ?? Date.now()).getTime(),
         })
       }
     } catch (err) {
@@ -149,18 +133,17 @@ export const useTempImageStore = defineStore('tempImage', () => {
     const localIds: string[] = []
 
     for (let i = 0; i < files.length; i++) {
-      const file    = files[i]
-      if (!file) continue    
+      const file = files[i]
+      if (!file) continue
       const rot     = rotations[i] ?? 0
       const localId = generateLocalId()
-      // Buat blob URL langsung agar gambar muncul di grid sebelum upload selesai
       const blobUrl = URL.createObjectURL(file)
 
       images.value.push({
         localId,
         serverId:         null,
         file,
-        url:              blobUrl,   // ← blob URL lokal, langsung tampil di grid
+        url:              blobUrl,
         status:           'pending',
         inspectionId,
         inspectionItemId: null,
@@ -176,24 +159,58 @@ export const useTempImageStore = defineStore('tempImage', () => {
     return localIds
   }
 
-  // ── Assign ke item — HANYA LOKAL ─────────────────────────
-
-  const assignLocallyToItem = (
-    localId:          string,
+  // ── Assign ke item — BULK PATCH ke server ────────────────
+  /**
+   * assignToItem — kirim SATU request PATCH bulk ke server.
+   *
+   * Menerima array localId, kirim semua serverId sekaligus:
+   *   PATCH /images/assign
+   *   body: { inspection_item_id, image_ids: [id1, id2, ...] }
+   *
+   * Optimistic update lokal dulu → rollback semua kalau server gagal.
+   *
+   * Return: array imageData yang berhasil (untuk emit 'assigned'),
+   *         atau null kalau gagal.
+   */
+  const assignToItem = async (
+    localIds:         string[],
     inspectionItemId: number,
-    itemId:           number
-  ): { id: number; image_url: string; caption: string | null } | null => {
-    const img = images.value.find(i => i.localId === localId)
-    if (!img || !img.serverId) return null
+    itemId:           number,
+  ): Promise<Array<{ id: number; image_url: string; caption: string | null }> | null> => {
 
-    img.inspectionItemId  = inspectionItemId
-    img.assignedToItemId  = itemId
+    // Kumpulkan foto yang valid (status done + punya serverId)
+    const targets = localIds
+      .map(localId => images.value.find(i => i.localId === localId))
+      .filter((img): img is TempImage => !!img && !!img.serverId && img.status === 'done')
 
-    return {
-      id:        img.serverId,
+    if (!targets.length) return null
+
+    const serverIds = targets.map(img => img.serverId as number)
+
+    // Optimistic update — update lokal dulu agar UI reaktif
+    for (const img of targets) {
+      img.inspectionItemId = inspectionItemId
+      img.assignedToItemId = itemId
+    }
+
+    try {
+      // Satu request bulk untuk semua foto yang dipilih
+      await assignInspectionImage(serverIds, inspectionItemId)
+    } catch (err) {
+      // Rollback semua kalau server gagal
+      console.error('[TempImageStore] assignToItem gagal:', err)
+      for (const img of targets) {
+        img.inspectionItemId = null
+        img.assignedToItemId = null
+      }
+      return null
+    }
+
+    return targets.map(img => ({
+      id:        img.serverId as number,
       image_url: img.imageUrl ?? img.url,
       caption:   img.caption  ?? null,
-    }
+    }))
   }
 
   // ── Unassign ──────────────────────────────────────────────
@@ -269,13 +286,12 @@ export const useTempImageStore = defineStore('tempImage', () => {
       const current = images.value.find(i => i.localId === localId)
       if (!current) return
 
-      // Lepas blob URL — ganti dengan URL server
       if (current.url?.startsWith('blob:')) URL.revokeObjectURL(current.url)
 
       current.serverId         = uploaded.id
       current.imageUrl         = uploaded.image_url
       current.url              = uploaded.image_url
-      current.caption          = uploaded.caption         ?? null
+      current.caption          = uploaded.caption          ?? null
       current.inspectionItemId = uploaded.inspection_item_id ?? null
       current.status           = 'done'
       current.rotation         = 0
@@ -287,7 +303,6 @@ export const useTempImageStore = defineStore('tempImage', () => {
       if (current) {
         current.status       = 'failed'
         current.errorMessage = err?.message || 'Upload gagal'
-        // Pertahankan blob URL agar gambar tetap tampil meski gagal upload
       }
     } finally {
       activeUploads.value.delete(localId)
@@ -303,7 +318,7 @@ export const useTempImageStore = defineStore('tempImage', () => {
     unassignedCount,
     fetchFromServer,
     addImages,
-    assignLocallyToItem,
+    assignToItem,
     unassignFromItem,
     removeImage,
     retryUpload,

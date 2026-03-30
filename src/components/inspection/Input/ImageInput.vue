@@ -22,10 +22,17 @@
              a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0
              00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
       </svg>
-      <p class="text-sm text-gray-600 mt-2">Klik untuk upload gambar {{selectedOptionValue}}</p>
-      <p class="text-xs text-gray-400 mt-1">
-        {{ maxFiles > 1 ? `Maksimal ${maxFiles} gambar` : 'Maksimal 1 gambar' }}
-      </p>
+      <p class="text-sm text-gray-600 mt-2">Klik untuk upload gambar</p>
+      
+    <div class="flex justify-center mt-1">
+        <p v-if="props.item.is_required" class="text-xs text-red-400">
+          Wajib di isi 
+        </p>
+        <p class="text-xs text-gray-400">
+          &nbsp;{{ maxFiles > 1 ? `Maksimal ${maxFiles} gambar` : 'Maksimal 1 gambar' }}
+        </p>
+    </div>
+      
     </div>
 
     <!-- ================= SINGLE MODE ================= -->
@@ -139,10 +146,22 @@
     :editable="true"
     :is-new-batch="isPreviewForNew"
     :start-index="previewStartIndex"
+    :show-option="hasShowOption"
+    :options="options"
+    :option-required="settings?.option_is_required === true"
+    :inspection-id="resolvedInspectionId"
+    :initial-option-value="previewOptionValue"
     @close="handlePreviewClose"
     @save="handlePreviewSave"
     @add-more="handleAddImage"
     @remove-stored="store.removeImage($event)"
+  />
+
+  <!-- untuk android capasitor -->
+  <CameraView
+    v-if="showNativeCamera"
+    @photo="handleNativePhoto"
+    @close="showNativeCamera = false"
   />
 </template>
 
@@ -154,10 +173,13 @@ import { useImageUploadStore }    from '../../../stores/useImageUploadStore'
 import ImageSourceModal  from './Image/ImageSourceModal.vue'
 import ImagePreviewModal from './Image/ImagePreviewModal.vue'
 import ImageThumbnail   from './Image/ImageThumbnail.vue'
+import CameraView from './Image/CameraView.vue'
 import RadioInput        from './RadioInput.vue'
 import UnassignedGalleryModal from './Image/Temp/UnassignedGalleryModal.vue'
 import { useTempImageStore } from '../../../stores/useTempImageStore'
 import type { RadioFlatValue } from './RadioInput.vue'
+import { Capacitor } from '@capacitor/core'
+
 
 // ─────────────────────────────────────────────────────────────
 // PROPS & EMITS
@@ -189,6 +211,8 @@ const emit = defineEmits<{
   (e: 'update:uploadStatus', status: { hasUploading: boolean; hasFailed: boolean }): void
 }>()
 
+const previewOptionValue = ref<any>(null)
+
 // ─────────────────────────────────────────────────────────────
 // STORE & CAMERA
 // ─────────────────────────────────────────────────────────────
@@ -198,6 +222,10 @@ const tempStore = useTempImageStore()
 const { settings: cameraSettings, listenForChanges } = useCameraSettings()
 const localCameraSource        = ref(cameraSettings.value.source)
 const localPreviewBeforeUpload = ref(cameraSettings.value.previewBeforeUpload ?? true)
+
+//khusus android capasitor
+const isNative = Capacitor.isNativePlatform()
+const showNativeCamera = ref(false)
 
 let cleanupListener: (() => void) | undefined
 
@@ -522,12 +550,42 @@ const handleTempAssigned = (
   showTempGallery.value = false
 }
 
+// const openFileInput = (type: 'camera' | 'gallery') => {
+//   if (!fileInput.value) return
+//   fileInput.value.value = ''
+//   fileInput.value.removeAttribute('capture')
+//   if (type === 'camera') fileInput.value.setAttribute('capture', 'environment')
+//   nextTick(() => fileInput.value?.click())
+// }
+
 const openFileInput = (type: 'camera' | 'gallery') => {
+  // Android + kamera → pakai Capacitor camera custom
+  if (isNative && type === 'camera') {
+    showNativeCamera.value = true
+    return
+  }
+
+  // Browser / galeri → tetap pakai input file biasa (tidak berubah)
   if (!fileInput.value) return
   fileInput.value.value = ''
   fileInput.value.removeAttribute('capture')
   if (type === 'camera') fileInput.value.setAttribute('capture', 'environment')
   nextTick(() => fileInput.value?.click())
+}
+
+const handleNativePhoto = (base64: string) => {
+  showNativeCamera.value = false
+
+  // Convert base64 → File object (sama seperti file input biasa)
+  const byteString = atob(base64)
+  const ab = new ArrayBuffer(byteString.length)
+  const ia = new Uint8Array(ab)
+  for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i)
+  const blob = new Blob([ab], { type: 'image/jpeg' })
+  const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
+
+  // Masuk ke processFiles() yang sudah ada — tidak ada perubahan di sini
+  processFiles([file])
 }
 
 const handleFileSelect = (e: Event) => {
@@ -561,17 +619,25 @@ const processFiles = (files: File[]) => {
     emit('update:error', `Hanya ${toAdd.length} gambar yang ditambahkan (batas ${maxFiles.value})`)
   }
 
-  if (localPreviewBeforeUpload.value || showPreviewModal.value) {
+ if (localPreviewBeforeUpload.value || showPreviewModal.value) {
     if (showPreviewModal.value) {
       const focusIndex = pendingPreviewImages.value.length
       pendingPreviewImages.value = [...pendingPreviewImages.value, ...toAdd]
       previewStartIndex.value    = focusIndex
+      // Kirim nilai option yang sudah ada
+      if (hasShowOption.value) {
+        previewOptionValue.value = localOptionValue.value
+      }
     } else {
       const stored = storedPreviewImages.value
       pendingPreviewImages.value = [...stored, ...toAdd]
       previewStartIndex.value    = stored.length
       isPreviewForNew.value      = true
       showPreviewModal.value     = true
+      // Kirim nilai option yang sudah ada
+      if (hasShowOption.value) {
+        previewOptionValue.value = localOptionValue.value
+      }
     }
     return
   }
@@ -597,11 +663,34 @@ const openPreview = (index: number) => {
   previewStartIndex.value    = index
   isPreviewForNew.value      = false
   showPreviewModal.value     = true
+  // Kirim nilai option yang sudah ada (jika ada)
+  if (hasShowOption.value) {
+    previewOptionValue.value = localOptionValue.value
+  }
 }
 
-const handlePreviewSave = (savedImages: any[]) => {
+const handlePreviewSave = (savedData: any) => {
+  const savedImages = savedData.images || savedData // backward compatibility
+  const savedOptionValue = savedData.optionValue
+  
   showPreviewModal.value = false
   isPreviewForNew.value  = false
+
+  // Jika ada nilai option dari preview, update localOptionValue
+  if (savedOptionValue && hasShowOption.value) {
+    // Update modelValue dengan nilai option yang dipilih di preview
+    const mv = props.modelValue
+    const currentImages = hasShowOption.value && mv && typeof mv === 'object' && !Array.isArray(mv)
+      ? (mv.image ?? [])
+      : (Array.isArray(mv) ? mv : [])
+    
+    emit('update:modelValue', {
+      image:      currentImages,
+      status:     savedOptionValue.status,
+      note:       savedOptionValue.note,
+      damage_ids: savedOptionValue.damage_ids ?? [],
+    })
+  }
 
   const inspId = resolvedInspectionId.value
   if (!inspId) {
@@ -613,7 +702,7 @@ const handlePreviewSave = (savedImages: any[]) => {
     return
   }
 
-  const newImages = savedImages.filter(img => img._isNew && img.file)
+  const newImages = savedImages.filter((img: any) => img._isNew && img.file)
 
   if (!newImages.length) {
     pendingPreviewImages.value.forEach(img => {
@@ -623,18 +712,17 @@ const handlePreviewSave = (savedImages: any[]) => {
     return
   }
 
-
   store.addImages({
-    files:               newImages.map(img => img.file),
-    rotations:           newImages.map(img => ((img.rotation || 0) % 360 + 360) % 360),
+    files:               newImages.map((img: any) => img.file),
+    rotations:           newImages.map((img: any) => ((img.rotation || 0) % 360 + 360) % 360),
     sectionId:           resolvedSectionId.value,
     itemId:              props.item.id,
     inspectionItemId:    props.item.inspection_item_id,
     inspectionId:        inspId,
-    selectedOptionValue: props.selectedOptionValue,
+    selectedOptionValue: savedOptionValue?.status || props.selectedOptionValue,
   })
 
-  newImages.forEach(img => {
+  newImages.forEach((img: any) => {
     if (img.url?.startsWith('blob:')) URL.revokeObjectURL(img.url)
   })
 
