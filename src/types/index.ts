@@ -8,8 +8,13 @@ export interface User {
 }
 
 export interface LoginCredentials {
-    email: string
-    password: string
+
+  email: string
+  password: string
+
+  device_id: string
+  device_name?: string
+  device_platform?: string
 }
 
 export interface AuthResponse {
@@ -19,4 +24,20 @@ export interface AuthResponse {
         user: User
         token: string
     }
+}
+
+//================OTP================
+export interface OtpRequestPayload {
+  phone: string
+  device_id: string
+  device_name?: string
+  device_platform?: string
+}
+
+export interface VerifyOtpPayload {
+  phone: string
+  otp: string
+  device_id: string
+  device_name?: string
+  device_platform?: string
 }

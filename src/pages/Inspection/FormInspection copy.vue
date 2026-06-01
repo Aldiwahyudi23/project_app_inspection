@@ -1,7 +1,7 @@
 <!-- src/views/InspectionFormView.vue -->
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, nextTick, provide } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave  } from 'vue-router'
 import { getFormInspection, saveInspectionForm, deleteInspectionItem } from '../../services/formInspectionService'
 import { useFormStorage }        from '../../composables/useFormStorage'
 import type { FormInspectionData, FormItem, VehicleAttribute } from '../../types/formInspection'
@@ -16,6 +16,12 @@ import { useTempImageStore }      from '../../stores/useTempImageStore'
 import { useDraggableFab }          from '../../composables/useDraggableFab'
 import UnassignedGalleryModal from '../../components/inspection/Input/Image/Temp/UnassignedGalleryModal.vue'
 
+import VehicleDetailModal from '../../components/inspection/VehicleDetailModal.vue'
+import { useInspectionVehicle } from '../../composables/useInspectionVehicle'
+
+import { useModalStore } from '../../stores/useModalStore'
+const modal = useModalStore()
+
 const route  = useRoute()
 const router = useRouter()
 
@@ -26,19 +32,35 @@ const formData = ref<FormInspectionData | null>(null)
 
 const showHiddenSections = ref<Record<number, boolean>>({})
 const triggeredItems     = ref<Record<number, boolean>>({})
-const showDamageModal    = ref(false)
+
 const showConfirmModal   = ref(false)
 
-const showCameraSettings  = ref(false)
-const showTempGallery     = ref(false)
+// const showDamageModal    = ref(false)
+// const showCameraSettings  = ref(false)
+// const showTempGallery     = ref(false)
+// const showVehicleDetail    = ref(false)
+
 const { settings: cameraSettings } = useCameraSettings()
 const imageStore  = useImageUploadStore()
 const tempStore   = useTempImageStore()
 
+const { initFromExisting } = useInspectionVehicle()
 
 const tempImagesCount = computed(() =>
   formData.value ? tempStore.unassignedCount(formData.value.inspection.id) : 0
 )
+
+
+onMounted(async () => {
+  // modal.closeAll()
+  await loadForm(inspectionId.value)
+})
+
+onBeforeRouteLeave(() => {
+  // Bersihkan semua gambar milik inspeksi ini dari Pinia store
+  // agar tidak bocor ke halaman form inspeksi lain
+  imageStore.clearInspection(inspectionId.value)
+})
 
 // untuk mengatur posisi tombol ngambang 
   // FAB Foto Bebas (biru) — kiri bawah
@@ -87,12 +109,14 @@ const tempImagesCount = computed(() =>
 
   const handleFabTempClick = () => {
     if (!fabTempShouldClick()) return
-    showTempGallery.value = true
+    // showTempGallery.value = true
+    modal.open('foto-bebas')
   }
 
   const handleFabDamageClick = () => {
     if (!fabDamageShouldClick()) return
-    showDamageModal.value = true
+    // showDamageModal.value = true
+    modal.open('damage-item')
   }
 
 // ─────────────────────────────────────────────────────────────
@@ -109,8 +133,8 @@ const itemValidationStatus = ref<Record<number, boolean>>({})
 // Computed langsung dari store — selalu reaktif walaupun komponen unmount (pindah section)
 const itemUploadStatus = computed<Record<number, { hasUploading: boolean; hasFailed: boolean }>>(() => {
   const result: Record<number, { hasUploading: boolean; hasFailed: boolean }> = {}
-  // Akses images agar computed ini reaktif terhadap perubahan status
-  const allImages = imageStore.images
+  // [FIX] Filter hanya gambar milik inspeksi aktif agar tidak bocor lintas inspeksi
+  const allImages  = imageStore.images.filter(img => img.inspectionId === inspectionId.value)
   const sectionIds = [...new Set(allImages.map(img => img.sectionId))]
   for (const sectionId of sectionIds) {
     const hasUploading = allImages.some(img =>
@@ -151,7 +175,7 @@ watch(
       const formItem = findItemById(itemId)
       if (!formItem) continue
 
-      const allImgs  = imageStore.getImagesBySection(itemId)
+      const allImgs  = imageStore.getImagesBySection(itemId, inspectionId.value)
       const doneImgs = allImgs.filter(img => img.status === 'done')
       const newImgArr = doneImgs.map(img => ({
         id:        img.serverId,
@@ -293,11 +317,18 @@ const isMatchVehicleAttr = (settings: any, vehicleAttr: VehicleAttribute): boole
 
 const checkTriggers = (parentItemId: number, value: any) => {
   if (!formData.value) return
-  const parentItem = findItemById(parentItemId)
-  if (!parentItem || parentItem.input_type !== 'radio' || !parentItem.settings?.options) return
 
-  // Ambil status string dari flat value
-  const rawValue    = typeof value === 'object' && value !== null && 'status' in value ? value.status : value
+const parentItem = findItemById(parentItemId)
+if (!parentItem || !parentItem.settings?.options) return
+
+// Izinkan radio DAN image dengan show_option
+const isRadioType = parentItem.input_type === 'radio'
+const isImageWithOption = parentItem.input_type === 'image' && parentItem.settings?.show_option === true
+if (!isRadioType && !isImageWithOption) return
+
+// Untuk image dengan show_option, status ada di value.status
+const rawValue = typeof value === 'object' && value !== null && 'status' in value ? value.status : value
+
   const selectedValues = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : [])
   const childItems: FormItem[] = []
 
@@ -392,6 +423,7 @@ const sectionsWithProcessedItems = computed(() => {
     })
   }))
 })
+
 
 const sections = computed(() => sectionsWithProcessedItems.value)
 
@@ -619,6 +651,16 @@ const loadForm = async (id: number) => {
         })
       })
 
+      // Init global vehicle state
+if (formData.value?.inspection) {
+  const insp = formData.value.inspection
+  initFromExisting(
+    insp.license_plate ?? '',
+    insp.vehicle_id    ?? null,
+    insp.vehicle_name  ?? '',
+  )
+}
+
       // Run validation & triggers untuk semua nilai yang sudah di-restore
       Object.keys(formValues.value).forEach(key => {
         const itemId = Number(key)
@@ -680,6 +722,24 @@ const loadForm = async (id: number) => {
 // ─────────────────────────────────────────────────────────────
 // EVENT HANDLERS
 // ─────────────────────────────────────────────────────────────
+const handleVehicleSaved = async (payload: {
+  license_plate: string
+  vehicle_id:    number
+  vehicle_name:  string
+}) => {
+  // showVehicleDetail.value = false
+   modal.close() 
+
+  // Update tampilan header dulu agar tidak blank saat reload
+  if (formData.value?.inspection) {
+    formData.value.inspection.license_plate = payload.license_plate
+    formData.value.inspection.vehicle_name  = payload.vehicle_name
+  }
+
+  // Reload form — item bisa berbeda setelah kendaraan berubah
+  await loadForm(inspectionId.value)
+}
+
 
 const handleSettingsUpdate = () => { console.log('Camera settings updated:', cameraSettings.value) }
 
@@ -825,7 +885,8 @@ const handleDamageItemSave = (itemId: number, value: any) => {
   }
 
   checkTriggers(itemId, value)
-  if (emptyDamageItems.value.length === 0) showDamageModal.value = false
+  // if (emptyDamageItems.value.length === 0) showDamageModal.value = false
+  if (emptyDamageItems.value.length === 0) modal.close()
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -916,7 +977,7 @@ const saveForm = async () => {
     imageStore.clearInspection( formData.value?.inspection.id ?? 0 )
 
     storage.clearStorage()
-    router.push('/dashboard/job')
+    router.push(`/jobs/${inspectionId.value}`)  
   } catch (err: any) {
     error.value = err.response?.data?.message || 'Gagal menyimpan form'
   } finally {
@@ -940,7 +1001,6 @@ watch(activeSection, async (newVal) => {
   }
 })
 
-onMounted(async () => { await loadForm(inspectionId.value) })
 </script>
 
 <template>
@@ -989,7 +1049,7 @@ onMounted(async () => { await loadForm(inspectionId.value) })
               </svg>
             </div>
             <div class="flex-1">
-              <p class="text-xs text-gray-500">Kelengkapan form</p>
+              <p class="text-xs text-gray-500">Kelengkapan form </p>
               <p class="text-sm font-bold text-green-600">{{ progress }}% selesai</p>
             </div>
           </div>
@@ -1018,12 +1078,12 @@ onMounted(async () => { await loadForm(inspectionId.value) })
     <div class="bg-white border-b border-gray-200 sticky top-0 z-30">
       <div class="px-4 py-3 flex items-center justify-between">
         <div class="flex items-center">
-          <button @click="router.back()" class="p-2 hover:bg-gray-100 rounded-full mr-2">
+          <button @click="router.push(`/jobs/${inspectionId }`)" class="p-2 hover:bg-gray-100 rounded-full mr-2">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <h1 class="text-sm font-semibold">Form Inspeksi</h1>
+          <h1 class="text-sm font-semibold">Form Inspeksi {{ vehicleInfo?.id }} o{{ formData?.inspection.id }}</h1>
         </div>
         <div class="flex items-center space-x-3">
           <div class="text-sm">
@@ -1033,7 +1093,7 @@ onMounted(async () => { await loadForm(inspectionId.value) })
             <div class="h-full bg-blue-500 transition-all duration-300" :style="{ width: progress + '%' }"></div>
           </div>
           <button
-            @click="showCameraSettings = true"
+            @click="modal.open('camera-settings')"
             class="p-2 hover:bg-gray-100 rounded-full transition-colors"
             title="Pengaturan Kamera"
           >
@@ -1072,16 +1132,22 @@ onMounted(async () => { await loadForm(inspectionId.value) })
     <div v-else-if="formData" class="pb-6">
 
       <!-- Vehicle Info -->
-      <div class="bg-white border-b border-gray-200 px-4 py-3">
+      <div
+        class="bg-white border-b border-gray-200 px-4 py-3 cursor-pointer active:bg-gray-50 transition-colors"
+        @click="modal.open('vehicle-detail')"
+      >
         <div class="flex items-start space-x-3">
           <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg class="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 14l1.5-4A2 2 0 018.4 8h7.2a2 2 0 011.9 2l1.5 4M4 14h16M6 18a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm9 0a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zM5 14v3h14v-3" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M5 14l1.5-4A2 2 0 018.4 8h7.2a2 2 0 011.9 2l1.5 4M4 14h16
+                   M6 18a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm9 0a1.5 1.5 0 103 0
+                   1.5 1.5 0 00-3 0zM5 14v3h14v-3"/>
             </svg>
           </div>
-          <div>
+          <div class="flex-1 min-w-0">
             <h2 class="font-semibold text-sm text-gray-800">{{ vehicleInfo?.vehicle_name }}</h2>
-            <p class="text-sm text-gray-600 font-mono mt-0.5">{{ vehicleInfo?.license_plate }}</p>
+            <p class="text-sm text-gray-600 font-mono mt-0.5">{{ vehicleInfo?.license_plate }} {{inspectionId}}</p>
           </div>
         </div>
       </div>
@@ -1267,30 +1333,39 @@ onMounted(async () => { await loadForm(inspectionId.value) })
 
   <!-- Unassigned Gallery Modal -->
   <UnassignedGalleryModal
-    v-if="showTempGallery"
-    :show="showTempGallery"
+    v-if="modal.isOpen('foto-bebas')"
+    :show="modal.isOpen('foto-bebas')"
     :inspection-id="formData?.inspection.id ?? 0"
     :sections="sections"
-    @close="showTempGallery = false"
+    @close="modal.close()"
     @assigned="handleTempAssigned"
   />
 
   <!-- Damage Item Modal -->
   <DamageItemModal
-    :show="showDamageModal"
+    :show="modal.isOpen('damage-item')"
     :damage-items="emptyDamageItems"
     :values="formValues"
     :metadata="metadata"
-    :inspectionId="inspectionId"
-    @close="showDamageModal = false"
+    :inspectionId="formData?.inspection.id ?? 0"
+    @close="modal.close()"
     @save-item="handleDamageItemSave"
   />
 
   <CameraSettingsModal
-    :show="showCameraSettings"
-    @close="showCameraSettings = false"
+    :show="modal.isOpen('camera-settings')"
+    @close="modal.close()"
     @update="handleSettingsUpdate"
   />
+
+  <VehicleDetailModal
+    :show="modal.isOpen('vehicle-detail')"
+    :inspection-id="formData?.inspection.id ?? 0"
+    :vehicle-detail="(formData?.inspection as any)?.vehicle_detail"
+    @close="modal.close()"
+    @saved="handleVehicleSaved"
+  />
+
 </template>
 
 <style scoped>

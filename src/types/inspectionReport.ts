@@ -7,6 +7,12 @@ export interface ReportData {
   conclusion: Record<string, any>
   sections: Section[]
   estimations: Estimation[]
+    // ← field baru
+  payment: Payment | null
+  payment_exists: boolean
+  payment_is_paid: boolean
+  remaining_payment: number
+  can_approve: boolean
 }
 
 export interface Section {
@@ -148,4 +154,41 @@ export interface VehicleDataConfig {
   no_rangka?: boolean
   no_mesin?: boolean
   id_transaksi?: boolean
+}
+
+export interface SendWhatsAppResponse {
+  success: boolean
+  data: {
+    inspection_id: number
+    status: string
+
+    customer: {
+      name: string
+      phone: string
+    }
+
+    vehicle: {
+      license_plate: string
+    }
+
+    report_link?: string | null
+
+    message: string
+
+    whatsapp_url: string
+  }
+}
+
+export interface Payment {
+  id: number
+  payment_status: 'partial' | 'paid' | 'unpaid'
+  paid_amount: number
+  total_amount: number
+  notes?: string | null
+}
+
+export interface PaymentPayload {
+  total_amount?: number   // hanya saat payment baru
+  paid_amount?: number
+  payment_method?: string
 }

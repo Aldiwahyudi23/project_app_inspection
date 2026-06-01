@@ -12,12 +12,21 @@ import JobDetail from '../pages/Job/JobDetail.vue'
 import FormInspection from '../pages/Inspection/FormInspection.vue'
 import Job from '../pages/Job.vue'
 import InspectionReport from '../pages/Inspection/InspectionReport.vue'
+import CreateInspection from '../pages/Inspection/CreateInspection.vue'
+import Settings from '../pages/Settings.vue'
+import SendWhatsApp from '../pages/Inspection/SendWhatsApp.vue'
+import FinancePage from '../pages/finance/FinancePage.vue'
+import BankAccountsPage from '../pages/finance/BankAccountsPage.vue'
+import LoginOtp from '../pages/auth/LoginOtp.vue'
+import FinanceReport from '../pages/finance/FinanceReport.vue'
+import PayoutDetail from '../pages/finance/PayoutDetail.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/login' },
-    { path: '/login', name: 'Login', component: Login, meta: { requiresGuest: true } },
+    { path: '/', redirect: '/login-otp' },
+    { path: '/login-urgent', name: 'Login', component: Login, meta: { requiresGuest: true } },
+    { path: '/login-otp', name: 'LoginOtp', component: LoginOtp, meta: { requiresGuest: true, title: 'Login OTP' } },
     {
       path: '/dashboard',
       component: MainLayout, // Layout wrapper
@@ -50,7 +59,51 @@ const router = createRouter({
       component: InspectionReport, 
       meta: {requiresAuth: true, title: 'Report Inspection' },
       props: false
-    }
+    },
+    {
+      path: '/created/inspection', 
+      name: 'CreatedInspection', 
+      component: CreateInspection, 
+      meta: {requiresAuth: true, title: 'Created Inspection' },
+      props: true
+    },
+    {
+      path: '/send-whatsapp/:id', 
+      name: 'SendWhatsApp', 
+      component: SendWhatsApp,
+      meta: { requiresAuth: true, title: 'Kirim WhatsApp' },
+      props: true
+    },
+    {
+      path: '/finance',
+      name: 'Finance',
+      component: FinancePage,
+      meta: { requiresAuth: true, title: 'Keuangan' }
+    },
+    {
+      path: '/bank-accounts',
+      name: 'BankAccounts',
+      component: BankAccountsPage,
+      meta: { requiresAuth: true, title: 'Rekening Bank' }
+    },
+    {
+      path: '/laporan',
+      name: 'Laporan',
+      component: FinanceReport, // Lazy load
+      meta: { requiresAuth: true, title: 'Laporan' }
+    },
+    {
+      path: '/finance/payout/:id',
+      name: 'PayoutDetail',
+      component: PayoutDetail, // Lazy load
+      meta: { requiresAuth: true, title: 'Detail Payout' },
+      props: true
+    },
+    { 
+      path: '/settings', 
+      name: 'settings', 
+      component: Settings, 
+      meta: { requiresAuth: true, title: 'Settings' } },
 
   ]
 })
@@ -64,7 +117,7 @@ router.beforeEach(async (to, _from, next) => {
   const isAuth = await authStore.checkAuth()
 
   if (to.meta.requiresAuth && !isAuth) {
-    return next('/login')
+    return next('/login-otp')
   } else if (to.meta.requiresGuest && isAuth) {
     return next('/dashboard/home')
   } else {

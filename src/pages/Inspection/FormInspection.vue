@@ -1,7 +1,7 @@
 <!-- src/views/InspectionFormView.vue -->
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, nextTick, provide, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch, nextTick, provide } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave  } from 'vue-router'
 import { getFormInspection, saveInspectionForm, deleteInspectionItem } from '../../services/formInspectionService'
 import { useFormStorage }        from '../../composables/useFormStorage'
 import type { FormInspectionData, FormItem, VehicleAttribute } from '../../types/formInspection'
@@ -19,6 +19,9 @@ import UnassignedGalleryModal from '../../components/inspection/Input/Image/Temp
 import VehicleDetailModal from '../../components/inspection/VehicleDetailModal.vue'
 import { useInspectionVehicle } from '../../composables/useInspectionVehicle'
 
+import { useModalStore } from '../../stores/useModalStore'
+const modal = useModalStore()
+
 const route  = useRoute()
 const router = useRouter()
 
@@ -29,57 +32,34 @@ const formData = ref<FormInspectionData | null>(null)
 
 const showHiddenSections = ref<Record<number, boolean>>({})
 const triggeredItems     = ref<Record<number, boolean>>({})
-const showDamageModal    = ref(false)
+
 const showConfirmModal   = ref(false)
 
-const showCameraSettings  = ref(false)
-const showTempGallery     = ref(false)
+// const showDamageModal    = ref(false)
+// const showCameraSettings  = ref(false)
+// const showTempGallery     = ref(false)
+// const showVehicleDetail    = ref(false)
+
 const { settings: cameraSettings } = useCameraSettings()
 const imageStore  = useImageUploadStore()
 const tempStore   = useTempImageStore()
 
 const { initFromExisting } = useInspectionVehicle()
-const showVehicleDetail    = ref(false)
 
 const tempImagesCount = computed(() =>
   formData.value ? tempStore.unassignedCount(formData.value.inspection.id) : 0
 )
 
-// ── Double-tap back (hardware back button) ──────────────────
-const backPressCount  = ref(0)
-let   backPressTimer: ReturnType<typeof setTimeout> | null = null
-
-const handlePopState = () => {
-  backPressCount.value++
-
-  if (backPressCount.value === 1) {
-    // Dorong kembali state agar URL tidak berubah dulu
-    history.pushState(null, '', window.location.href)
-
-    // Tampilkan toast / hint (opsional, tapi recommended)
-    // Anda bisa pakai notifikasi ringan, atau biarkan saja
-    backPressTimer = setTimeout(() => {
-      backPressCount.value = 0
-    }, 2000) // reset setelah 2 detik
-  } else {
-    // Klik kedua → benar-benar keluar
-    if (backPressTimer) clearTimeout(backPressTimer)
-    backPressCount.value = 0
-    router.back()
-  }
-}
 
 onMounted(async () => {
-  // Pasang "dummy" state supaya popstate terpicu saat back ditekan
-  history.pushState(null, '', window.location.href)
-  window.addEventListener('popstate', handlePopState)
-
+  // modal.closeAll()
   await loadForm(inspectionId.value)
 })
 
-onUnmounted(() => {
-  window.removeEventListener('popstate', handlePopState)
-  if (backPressTimer) clearTimeout(backPressTimer)
+onBeforeRouteLeave(() => {
+  // Bersihkan semua gambar milik inspeksi ini dari Pinia store
+  // agar tidak bocor ke halaman form inspeksi lain
+  imageStore.clearInspection(inspectionId.value)
 })
 
 // untuk mengatur posisi tombol ngambang 
@@ -129,12 +109,14 @@ onUnmounted(() => {
 
   const handleFabTempClick = () => {
     if (!fabTempShouldClick()) return
-    showTempGallery.value = true
+    // showTempGallery.value = true
+    modal.open('foto-bebas')
   }
 
   const handleFabDamageClick = () => {
     if (!fabDamageShouldClick()) return
-    showDamageModal.value = true
+    // showDamageModal.value = true
+    modal.open('damage-item')
   }
 
 // ─────────────────────────────────────────────────────────────
@@ -151,8 +133,8 @@ const itemValidationStatus = ref<Record<number, boolean>>({})
 // Computed langsung dari store — selalu reaktif walaupun komponen unmount (pindah section)
 const itemUploadStatus = computed<Record<number, { hasUploading: boolean; hasFailed: boolean }>>(() => {
   const result: Record<number, { hasUploading: boolean; hasFailed: boolean }> = {}
-  // Akses images agar computed ini reaktif terhadap perubahan status
-  const allImages = imageStore.images
+  // [FIX] Filter hanya gambar milik inspeksi aktif agar tidak bocor lintas inspeksi
+  const allImages  = imageStore.images.filter(img => img.inspectionId === inspectionId.value)
   const sectionIds = [...new Set(allImages.map(img => img.sectionId))]
   for (const sectionId of sectionIds) {
     const hasUploading = allImages.some(img =>
@@ -180,6 +162,7 @@ const activeSection = ref<number | null>(storage.activeSection.value)
 // karena OptionRenderer emit update:value → parent kumpulkan ke formValues.
 // ─────────────────────────────────────────────────────────────
 
+
 watch(
   () => imageStore.images.map(img => ({
     localId: img.localId, status: img.status,
@@ -193,7 +176,7 @@ watch(
       const formItem = findItemById(itemId)
       if (!formItem) continue
 
-      const allImgs  = imageStore.getImagesBySection(itemId)
+      const allImgs  = imageStore.getImagesBySection(itemId, inspectionId.value)
       const doneImgs = allImgs.filter(img => img.status === 'done')
       const newImgArr = doneImgs.map(img => ({
         id:        img.serverId,
@@ -201,12 +184,11 @@ watch(
         caption:   img.caption ?? null,
       }))
 
-      // ── CASE 1: input_type = 'image' standalone ─────────────────────────────
+      // CASE 1: input_type = 'image' standalone
       if (formItem.input_type === 'image') {
         const hasShowOption = formItem.settings?.show_option === true
 
         if (hasShowOption) {
-          // formValues[itemId] = { image: [...], status, note, damage_ids }
           if (doneImgs.length > 0) {
             const currentVal    = formValues.value[itemId]
             const currentImgArr = (currentVal && typeof currentVal === 'object' && !Array.isArray(currentVal))
@@ -225,22 +207,9 @@ watch(
               }
             }
           }
-          if (allImgs.length === 0) {
-            const currentVal = formValues.value[itemId]
-            const hasImages  = currentVal && typeof currentVal === 'object' && !Array.isArray(currentVal)
-              ? (Array.isArray(currentVal.image) && currentVal.image.length > 0)
-              : false
-            if (hasImages) {
-              const existingOption = (currentVal && typeof currentVal === 'object' && !Array.isArray(currentVal))
-                ? { status: currentVal.status ?? null, note: currentVal.note ?? null, damage_ids: currentVal.damage_ids ?? [] }
-                : { status: null, note: null, damage_ids: [] }
-              formValues.value[itemId] = { image: [], ...existingOption }
-              saveItemToStorage(itemId)
-            }
-          }
+          // ← HAPUS seluruh blok "if (allImgs.length === 0)" untuk show_option
 
         } else {
-          // formValues[itemId] = [{id, image_url, caption}]
           if (doneImgs.length > 0) {
             const currentVal = formValues.value[itemId]
             const currentIds = Array.isArray(currentVal)
@@ -253,22 +222,15 @@ watch(
               itemValidationStatus.value[itemId] = !formItem.is_required || newImgArr.length > 0
             }
           }
-          if (allImgs.length === 0 && Array.isArray(formValues.value[itemId])) {
-            formValues.value[itemId] = []
-            saveItemToStorage(itemId)
-            if (formItem.is_required) itemValidationStatus.value[itemId] = false
-          }
+          // ← HAPUS seluruh blok "if (allImgs.length === 0 && Array.isArray(...))"
+          // Jangan pernah reset ke [] dari sini — biarkan ImageInput yang handle
         }
 
-      // ── CASE 2: input_type = radio/select/checkbox — nested image di OptionRenderer ──
-      // sectionId di store = parentItemId (id item radio/select/checkbox)
-      // formValues[itemId] = { status, note, image, damage_ids }
+      // CASE 2: radio/select/checkbox
       } else if (['radio', 'select', 'checkbox'].includes(formItem.input_type)) {
         if (doneImgs.length > 0) {
           const currentVal = formValues.value[itemId]
-          // Hanya proses jika item sudah punya status (option sudah dipilih)
           if (!currentVal || typeof currentVal !== 'object' || Array.isArray(currentVal)) continue
-          // Skip jika belum ada status (option belum dipilih) — tidak ada yang perlu di-merge
           const hasStatus = Array.isArray(currentVal.status)
             ? currentVal.status.length > 0
             : !!currentVal.status
@@ -279,15 +241,11 @@ watch(
           const newIds        = newImgArr.map(i => i.id).filter(Boolean).sort().join(',')
 
           if (currentIds !== newIds) {
-            // Merge image baru ke dalam flat value, pertahankan status/note/damage_ids
-            formValues.value[itemId] = {
-              ...currentVal,
-              image: newImgArr,
-            }
+            formValues.value[itemId] = { ...currentVal, image: newImgArr }
             saveItemToStorage(itemId)
-            // validationStatus sudah dihandle komponen via update:valid — tidak di-override di sini
           }
         }
+        // ← tidak ada reset di sini juga
       }
     }
   }
@@ -336,20 +294,18 @@ const isMatchVehicleAttr = (settings: any, vehicleAttr: VehicleAttribute): boole
 const checkTriggers = (parentItemId: number, value: any) => {
   if (!formData.value) return
 
-const parentItem = findItemById(parentItemId)
-if (!parentItem || !parentItem.settings?.options) return
+  const parentItem = findItemById(parentItemId)
+  if (!parentItem || !parentItem.settings?.options) return
 
-// Izinkan radio DAN image dengan show_option
-const isRadioType = parentItem.input_type === 'radio'
-const isImageWithOption = parentItem.input_type === 'image' && parentItem.settings?.show_option === true
-if (!isRadioType && !isImageWithOption) return
+  const isRadioType = parentItem.input_type === 'radio'
+  const isImageWithOption = parentItem.input_type === 'image' && parentItem.settings?.show_option === true
+  if (!isRadioType && !isImageWithOption) return
 
-// Untuk image dengan show_option, status ada di value.status
-const rawValue = typeof value === 'object' && value !== null && 'status' in value ? value.status : value
-
+  const rawValue = typeof value === 'object' && value !== null && 'status' in value ? value.status : value
   const selectedValues = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : [])
-  const childItems: FormItem[] = []
 
+  // Kumpulkan child items dari parent ini
+  const childItems: FormItem[] = []
   formData.value?.template.sections.forEach(section => {
     section.items.forEach(item => {
       if ((item.settings?.parent_item_id?.length ?? 0) > 0) {
@@ -359,12 +315,90 @@ const rawValue = typeof value === 'object' && value !== null && 'status' in valu
     })
   })
 
-  childItems.forEach(item => { triggeredItems.value[item.id] = false })
+  if (childItems.length === 0) return
 
+  // PENTING: hanya reset child items milik parent INI
+  // Jangan reset kalau value kosong (parent belum dipilih) — biarkan state sebelumnya
+  if (selectedValues.length === 0) {
+    // Parent tidak punya value → set child ke false HANYA kalau tidak ada parent lain yang trigger
+    childItems.forEach(item => {
+      const otherParentIds = (item.settings?.parent_item_id as any[] ?? [])
+        .map((id: any) => Number(id))
+        .filter(id => id !== parentItemId)
+      
+      // Cek apakah ada parent lain yang sudah trigger item ini
+      const alreadyTriggeredByOther = otherParentIds.some(otherId => {
+        const otherVal = formValues.value[otherId]
+        if (!otherVal) return false
+        const otherRaw = typeof otherVal === 'object' && 'status' in otherVal ? otherVal.status : otherVal
+        const otherSelected = Array.isArray(otherRaw) ? otherRaw : (otherRaw ? [otherRaw] : [])
+        const otherItem = findItemById(otherId)
+        return otherSelected.some((sv: any) => {
+          const opt = otherItem?.settings?.options?.find((o: any) => o.value === sv) as any
+          return opt?.show_trigger && (opt.target_item_id ?? []).map(Number).includes(item.id)
+        })
+      })
+
+      if (!alreadyTriggeredByOther) {
+        triggeredItems.value[item.id] = false
+      }
+    })
+    return
+  }
+
+  // Reset child items milik parent ini
+// Reset child items milik parent ini
+childItems.forEach(item => {
+
+  const parentIds = (item.settings?.parent_item_id ?? [])
+    .map((id: any) => Number(id))
+
+  // cek apakah item masih ditrigger parent lain
+  const stillTriggeredByOtherParent = parentIds
+    .filter(id => id !== parentItemId)
+    .some(otherParentId => {
+
+      const otherValue = formValues.value[otherParentId]
+      if (!otherValue) return false
+
+      const otherRaw =
+        typeof otherValue === 'object' &&
+        otherValue !== null &&
+        'status' in otherValue
+          ? otherValue.status
+          : otherValue
+
+      const otherSelected = Array.isArray(otherRaw)
+        ? otherRaw
+        : (otherRaw ? [otherRaw] : [])
+
+      const otherParentItem = findItemById(otherParentId)
+      if (!otherParentItem) return false
+
+      return otherSelected.some((selected: any) => {
+        const opt = otherParentItem.settings?.options?.find(
+          (o: any) => o.value === selected
+        ) as any
+
+        return (
+          opt?.show_trigger &&
+          (opt.target_item_id ?? [])
+            .map((id: any) => Number(id))
+            .includes(item.id)
+        )
+      })
+    })
+
+  // hanya false kalau memang tidak ada parent lain yang trigger
+  if (!stillTriggeredByOtherParent) {
+    triggeredItems.value[item.id] = false
+  }
+})
+  // Set trigger untuk option yang dipilih
   selectedValues.forEach(selectedValue => {
     const option = parentItem.settings?.options?.find((opt: any) => opt.value === selectedValue) as any
     if (option?.show_trigger && (option.target_item_id?.length ?? 0) > 0) {
-      (option.target_item_id as any[]).map((id: any) => Number(id)).forEach((targetId: number) => {
+      ;(option.target_item_id as any[]).map((id: any) => Number(id)).forEach((targetId: number) => {
         const targetItem = childItems.find(i => i.id === targetId)
         if (targetItem) {
           const targetParentIds = targetItem.settings.parent_item_id?.map((id: any) => Number(id)) || []
@@ -582,6 +616,62 @@ const saveItemToStorage = (itemId: number) => {
 // LOAD FORM
 // ─────────────────────────────────────────────────────────────
 
+// Sync semua gambar dari formValues ke imageStore
+// agar ImageInput tidak perlu menunggu syncExistingImages saat mount
+const syncAllImagesToStore = () => {
+  if (!formData.value) return
+  
+  formData.value.template.sections.forEach(section => {
+    section.items.forEach(item => {
+      const val = formValues.value[item.id]
+      if (!val) return
+      
+      let serverImages: Array<{ id: number; image_url: string; caption?: string | null }> = []
+      
+      if (item.input_type === 'image') {
+        if (item.settings?.show_option === true) {
+          // flat: { image: [...], status, note }
+          const imgArr = val?.image
+          if (Array.isArray(imgArr)) {
+            serverImages = imgArr.filter((img: any) => img?.id && img?.image_url)
+          }
+        } else {
+          // plain array
+          if (Array.isArray(val)) {
+            serverImages = val.filter((img: any) => img?.id && img?.image_url)
+          }
+        }
+      } else if (['radio', 'select', 'checkbox'].includes(item.input_type)) {
+        // nested image dalam option
+        const imgArr = val?.image
+        if (Array.isArray(imgArr)) {
+          serverImages = imgArr.filter((img: any) => img?.id && img?.image_url)
+        }
+      }
+      
+      if (serverImages.length === 0) return
+      
+      // Cek sudah ada di store atau belum
+      const existingInStore = imageStore.getImagesBySection(item.id, inspectionId.value)
+      const existingIds = new Set(existingInStore.map(img => img.serverId))
+      const missing = serverImages.filter(img => !existingIds.has(img.id))
+      
+      if (missing.length === 0) return
+      
+      imageStore.syncFromServer({
+        serverImages:     missing,
+        sectionId:        item.id,
+        itemId:           item.id,
+        inspectionItemId: item.inspection_item_id,
+        inspectionId:     inspectionId.value,
+      })
+    })
+  })
+}
+
+// Panggil setelah semua restore dan triggers selesai
+syncAllImagesToStore()
+
 const loadForm = async (id: number) => {
   loading.value = true
   error.value   = null
@@ -670,14 +760,14 @@ const loadForm = async (id: number) => {
       })
 
       // Init global vehicle state
-if (formData.value?.inspection) {
-  const insp = formData.value.inspection
-  initFromExisting(
-    insp.license_plate ?? '',
-    insp.vehicle_id    ?? null,
-    insp.vehicle_name  ?? '',
-  )
-}
+      if (formData.value?.inspection) {
+        const insp = formData.value.inspection
+        initFromExisting(
+          insp.license_plate ?? '',
+          insp.vehicle_id    ?? null,
+          insp.vehicle_name  ?? '',
+        )
+      }
 
       // Run validation & triggers untuk semua nilai yang sudah di-restore
       Object.keys(formValues.value).forEach(key => {
@@ -720,6 +810,9 @@ if (formData.value?.inspection) {
         activeSection.value = formData.value!.template.sections[0]!.id
         storage.saveActiveSection(activeSection.value)
       }
+      // Sync semua gambar ke store
+      syncAllImagesToStore()  
+
       storage.clearExpired()
 
       // Load foto bebas (temp) yang belum diassign dari server
@@ -745,7 +838,8 @@ const handleVehicleSaved = async (payload: {
   vehicle_id:    number
   vehicle_name:  string
 }) => {
-  showVehicleDetail.value = false
+  // showVehicleDetail.value = false
+   modal.close() 
 
   // Update tampilan header dulu agar tidak blank saat reload
   if (formData.value?.inspection) {
@@ -902,7 +996,8 @@ const handleDamageItemSave = (itemId: number, value: any) => {
   }
 
   checkTriggers(itemId, value)
-  if (emptyDamageItems.value.length === 0) showDamageModal.value = false
+  // if (emptyDamageItems.value.length === 0) showDamageModal.value = false
+  if (emptyDamageItems.value.length === 0) modal.close()
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1065,7 +1160,7 @@ watch(activeSection, async (newVal) => {
               </svg>
             </div>
             <div class="flex-1">
-              <p class="text-xs text-gray-500">Kelengkapan form</p>
+              <p class="text-xs text-gray-500">Kelengkapan form </p>
               <p class="text-sm font-bold text-green-600">{{ progress }}% selesai</p>
             </div>
           </div>
@@ -1109,7 +1204,7 @@ watch(activeSection, async (newVal) => {
             <div class="h-full bg-blue-500 transition-all duration-300" :style="{ width: progress + '%' }"></div>
           </div>
           <button
-            @click="showCameraSettings = true"
+            @click="modal.open('camera-settings')"
             class="p-2 hover:bg-gray-100 rounded-full transition-colors"
             title="Pengaturan Kamera"
           >
@@ -1150,7 +1245,7 @@ watch(activeSection, async (newVal) => {
       <!-- Vehicle Info -->
       <div
         class="bg-white border-b border-gray-200 px-4 py-3 cursor-pointer active:bg-gray-50 transition-colors"
-        @click="showVehicleDetail = true"
+        @click="modal.open('vehicle-detail')"
       >
         <div class="flex items-start space-x-3">
           <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -1349,36 +1444,36 @@ watch(activeSection, async (newVal) => {
 
   <!-- Unassigned Gallery Modal -->
   <UnassignedGalleryModal
-    v-if="showTempGallery"
-    :show="showTempGallery"
+    v-if="modal.isOpen('foto-bebas')"
+    :show="modal.isOpen('foto-bebas')"
     :inspection-id="formData?.inspection.id ?? 0"
     :sections="sections"
-    @close="showTempGallery = false"
+    @close="modal.close()"
     @assigned="handleTempAssigned"
   />
 
   <!-- Damage Item Modal -->
   <DamageItemModal
-    :show="showDamageModal"
+    :show="modal.isOpen('damage-item')"
     :damage-items="emptyDamageItems"
     :values="formValues"
     :metadata="metadata"
     :inspectionId="formData?.inspection.id ?? 0"
-    @close="showDamageModal = false"
+    @close="modal.close()"
     @save-item="handleDamageItemSave"
   />
 
   <CameraSettingsModal
-    :show="showCameraSettings"
-    @close="showCameraSettings = false"
+    :show="modal.isOpen('camera-settings')"
+    @close="modal.close()"
     @update="handleSettingsUpdate"
   />
 
   <VehicleDetailModal
-    :show="showVehicleDetail"
+    :show="modal.isOpen('vehicle-detail')"
     :inspection-id="formData?.inspection.id ?? 0"
     :vehicle-detail="(formData?.inspection as any)?.vehicle_detail"
-    @close="showVehicleDetail = false"
+    @close="modal.close()"
     @saved="handleVehicleSaved"
   />
 

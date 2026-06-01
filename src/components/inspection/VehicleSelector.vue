@@ -6,6 +6,8 @@
   - Format vehicle_detail BARU (ada id) → set langsung, TIDAK request berurutan saat mount
   - Setelah pilih satu level → langsung prefetch level berikutnya di background
   - Bisa dipakai tanpa initialVehicleDetail (mode baru, mulai kosong)
+  - Cek no polisi via API → auto-fill vehicle detail + tampil warning & region di bawah nopol
+  - Kalau initialVehicleDetail sudah ada → tidak request plate check, hanya request kalau nopol diubah
 -->
 <template>
   <div class="space-y-4">
@@ -31,21 +33,102 @@
             @input="onPlateSuffixInput" />
 
         </div>
-      <!-- Preview -->
-      <!-- <div class="flex-1 flex flex-col items-center gap-1">
-        <div class="h-12 px-2 flex items-center justify-center bg-gray-900 rounded-xl w-full min-w-[72px]">
-          <span class="text-white font-bold text-sm tracking-widest truncate">{{ licensePlate || '—' }}</span>
-        </div>
-      </div> -->
 
+      <!-- Errors nopol -->
       <div class="mt-1 space-y-0.5">
         <p v-if="errors.area"   class="text-xs text-red-500">{{ errors.area }}</p>
         <p v-if="errors.number" class="text-xs text-red-500">{{ errors.number }}</p>
         <p v-if="errors.suffix" class="text-xs text-red-500">{{ errors.suffix }}</p>
       </div>
-    </div>
 
-    <!-- <div class="border-t border-gray-100" /> -->
+      <!-- Loading plate check -->
+      <div v-if="plateChecking" class="mt-2 flex items-center gap-2">
+        <svg class="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+        <span class="text-xs text-gray-400">Mengecek nomor polisi…</span>
+      </div>
+
+      <!-- Region info -->
+      <Transition name="slide-fade">
+        <div v-if="plateRegion && !plateChecking" class="mt-2 flex items-center gap-2 flex-wrap">
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700">
+            <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            {{ plateRegion.code }}
+          </span>
+          <span class="text-xs text-gray-500">{{ plateRegion.areas.join(', ') }}</span>
+        </div>
+      </Transition>
+
+      <!-- Pesan info / error nopol (invalid region atau no data) -->
+      <Transition name="slide-fade">
+        <div v-if="plateInvalidMsg && !plateChecking"
+          class="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl border"
+          :class="plateRegion
+            ? 'bg-blue-50 border-blue-200'
+            : 'bg-red-50 border-red-200'"
+        >
+          <!-- Ada region → info biasa (no data case) -->
+          <svg v-if="plateRegion" class="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <!-- Tidak ada region → error (invalid plate case) -->
+          <svg v-else class="w-4 h-4 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <p class="text-xs" :class="plateRegion ? 'text-blue-600' : 'text-red-600'">
+            {{ plateInvalidMsg }}
+          </p>
+        </div>
+      </Transition>
+
+      <!-- Warning dari inspection -->
+      <Transition name="slide-fade">
+        <div v-if="plateWarning && !plateChecking"
+          class="mt-2 flex items-start gap-2 px-3 py-2.5 rounded-xl border"
+          :class="{
+            'bg-yellow-50 border-yellow-200': plateWarning.status === 'under_review',
+            'bg-red-50 border-red-200':       plateWarning.status === 'rejected',
+            'bg-blue-50 border-blue-200':     !['under_review','rejected'].includes(plateWarning.status ?? ''),
+          }"
+        >
+          <svg class="w-4 h-4 flex-shrink-0 mt-0.5"
+            :class="{
+              'text-yellow-500': plateWarning.status === 'under_review',
+              'text-red-500':    plateWarning.status === 'rejected',
+              'text-blue-500':   !['under_review','rejected'].includes(plateWarning.status ?? ''),
+            }"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          </svg>
+          <div>
+            <p class="text-xs font-semibold"
+              :class="{
+                'text-yellow-700': plateWarning.status === 'under_review',
+                'text-red-700':    plateWarning.status === 'rejected',
+                'text-blue-700':   !['under_review','rejected'].includes(plateWarning.status ?? ''),
+              }"
+            >{{ plateWarning.status_label }}</p>
+            <p class="text-xs mt-0.5"
+              :class="{
+                'text-yellow-600': plateWarning.status === 'under_review',
+                'text-red-600':    plateWarning.status === 'rejected',
+                'text-blue-600':   !['under_review','rejected'].includes(plateWarning.status ?? ''),
+              }"
+            >{{ plateWarning.message }}</p>
+          </div>
+        </div>
+      </Transition>
+    </div>
 
     <!-- VEHICLE CASCADING -->
     <div>
@@ -127,11 +210,10 @@
           />
         </div>
 
-        <!-- Transmisi — selalu tampil, radio pills kalau data ada, disabled kalau CC belum dipilih -->
+        <!-- Transmisi -->
         <div>
           <p class="text-xs text-gray-500 mb-2">Transmisi</p>
 
-          <!-- Loading -->
           <div v-if="loading.transmission" class="flex items-center gap-2 py-1">
             <svg class="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -140,10 +222,8 @@
             <span class="text-xs text-gray-400">Memuat transmisi…</span>
           </div>
 
-          <!-- Radio pills — ada data dari existing atau setelah fetch -->
           <div v-else-if="options.transmission.length" class="grid gap-2"
             :class="{
-              // 'grid-cols-1': options.transmission.length === 1,
               'grid-cols-2': options.transmission.length === 1 || options.transmission.length === 2,
               'grid-cols-3': options.transmission.length >= 3,
             }"
@@ -163,13 +243,12 @@
               {{ opt.name }}
             </button>
           </div>
-          <!-- Placeholder disabled — belum ada data -->
           <div v-else class="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-300 cursor-not-allowed select-none">
             {{ sel.cc !== null ? 'Memuat…' : 'Pilih CC terlebih dahulu' }}
           </div>
         </div>
 
-        <!-- Bahan Bakar — selalu tampil, disabled kalau transmisi belum dipilih -->
+        <!-- Bahan Bakar -->
         <div>
           <p class="text-xs text-gray-500 mb-1">Bahan Bakar</p>
           <SelectField
@@ -184,7 +263,7 @@
           />
         </div>
 
-        <!-- Periode Pasar — selalu tampil, disabled kalau bahan bakar belum dipilih -->
+        <!-- Periode Pasar -->
         <div>
           <p class="text-xs text-gray-500 mb-1">Periode Pasar</p>
           <SelectField
@@ -225,36 +304,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, defineComponent, h, onMounted, Teleport } from 'vue'
+import { ref, reactive, computed, defineComponent, h, onMounted, Teleport } from 'vue'
 import { useInspectionVehicle } from '../../composables/useInspectionVehicle'
 import {
   getBrands, getModels, getTypes, getYears, getCc,
   getTransmissions, getFuelTypes, getMarketPeriods, getVehicleDetail,
+  checkVehicleByPlate,
 } from '../../services/inspectionVehicleService'
-
-// ─────────────────────────────────────────────────────────────
-// FORMAT vehicle_detail BARU dari backend (kirimkan ini agar tidak
-// perlu request berurutan saat mount):
-//
-// {
-//   "brand":         { "id": 1,  "name": "Toyota" },
-//   "model":         { "id": 4,  "name": "Veloz" },
-//   "type":          { "id": 12, "name": "Q TSS" },
-//   "year":          2025,
-//   "cc":            { "cc": 1496, "name": "1.5L" },
-//   "transmission":  { "id": 3,  "name": "CVT" },
-//   "fuel_type":     "Bensin",
-//   "market_period": "2025-2030",
-//   "vehicle_id":    233,
-//   "vehicle_name":  "Toyota Veloz Q TSS 1496 CVT"
-// }
-// ─────────────────────────────────────────────────────────────
 
 // ── Types ─────────────────────────────────────────────────────
 type IdOpt   = { id: number; name: string }
 type YearOpt = { year: number; vehicle_count?: number }
 type CcOpt   = { cc: number; name: string; vehicle_count?: number }
 type MktOpt  = { market_period: string; vehicle_count?: number }
+
+type PlateRegion  = { code: string; areas: string[] }
+type PlateWarning = { message: string; status: string; status_label: string }
 
 // ── Props ─────────────────────────────────────────────────────
 const props = defineProps<{
@@ -274,17 +339,160 @@ const props = defineProps<{
 
 // ── Global state ──────────────────────────────────────────────
 const {
-  // licensePlate, 
   vehicleId, vehicleName,
   _plateArea, _plateNumber, _plateSuffix,
   setVehicle,
 } = useInspectionVehicle()
 
-// ── Plate ─────────────────────────────────────────────────────
-const onPlateAreaInput   = () => { _plateArea.value   = _plateArea.value.replace(/[^a-zA-Z]/g, '').toUpperCase() }
-const onPlateNumberInput = () => { _plateNumber.value = _plateNumber.value.replace(/[^0-9]/g, '').slice(0, 4) }
-const onPlateSuffixInput = () => { _plateSuffix.value = _plateSuffix.value.replace(/[^a-zA-Z]/g, '').toUpperCase() }
+// ── Plate check state ─────────────────────────────────────────
+const plateChecking      = ref(false)
+const plateRegion        = ref<PlateRegion | null>(null)
+const plateWarning       = ref<PlateWarning | null>(null)
+const plateInvalidMsg    = ref<string | null>(null)  // pesan error wilayah tidak valid
 
+// Flag: apakah data sudah di-seed dari initialVehicleDetail atau plate check
+// Kalau true → jangan auto-check nopol, hanya check kalau user ubah nopol
+const plateDataSeeded = ref(false)
+
+// Computed: plate lengkap
+const licensePlate = computed(() => {
+  const a = _plateArea.value.trim()
+  const n = _plateNumber.value.trim()
+  const s = _plateSuffix.value.trim()
+  if (!a || !n || !s) return ''
+  return `${a} ${n} ${s}`
+})
+
+// ── Plate input handlers ──────────────────────────────────────
+const onPlateAreaInput = () => {
+  _plateArea.value = _plateArea.value.replace(/[^a-zA-Z]/g, '').toUpperCase()
+  onPlateChanged()
+}
+const onPlateNumberInput = () => {
+  _plateNumber.value = _plateNumber.value.replace(/[^0-9]/g, '').slice(0, 4)
+  onPlateChanged()
+}
+const onPlateSuffixInput = () => {
+  _plateSuffix.value = _plateSuffix.value.replace(/[^a-zA-Z]/g, '').toUpperCase()
+  onPlateChanged()
+}
+
+// Dipanggil tiap kali user mengetik di field nopol
+// Reset seed flag → kalau plate sudah lengkap akan trigger check
+let plateDebounceTimer: ReturnType<typeof setTimeout> | null = null
+const onPlateChanged = () => {
+  // Reset warning, region & invalid msg saat user mengetik ulang
+  plateRegion.value   = null
+  plateWarning.value  = null
+  plateInvalidMsg.value = null
+
+  // Kalau data sebelumnya dari seed/initial → mark sebagai "sudah diubah user"
+  plateDataSeeded.value = false
+
+  if (plateDebounceTimer) clearTimeout(plateDebounceTimer)
+  plateDebounceTimer = setTimeout(() => {
+    if (licensePlate.value) {
+      doCheckPlate(licensePlate.value)
+    }
+  }, 600)
+}
+
+// ── Plate check ───────────────────────────────────────────────
+// Tiga skenario response:
+//  Case 1 — nopol tidak valid  : success:false, HTTP 4xx, message di root
+//  Case 2 — valid + ada data   : success:true, region & warning di resBody.data
+//  Case 3 — valid + no data    : success:true, data:null, region di root resBody, message di root
+const doCheckPlate = async (plate: string) => {
+  plateChecking.value   = true
+  plateRegion.value     = null
+  plateWarning.value    = null
+  plateInvalidMsg.value = null
+
+  try {
+    const res     = await checkVehicleByPlate(plate)
+    const resBody = res.data  // { success, data, region?, message? }
+
+    // Region: case 2 → resBody.data.region | case 3 → resBody.region
+    const region  = resBody?.data?.region ?? resBody?.region ?? null
+    // Warning: hanya ada di case 2
+    const warning = resBody?.data?.warning ?? null
+    // Pesan info: case 3 → resBody.message ("Belum ada data inspeksi")
+    const msgInfo = resBody?.message ?? null
+
+    if (region) {
+      plateRegion.value = region as PlateRegion
+    }
+
+    if (warning) {
+      plateWarning.value = warning as PlateWarning
+    }
+
+    // Tampilkan pesan info kalau tidak ada data inspection (case 3)
+    if (!resBody?.data?.inspection && msgInfo) {
+      plateInvalidMsg.value = msgInfo
+    }
+
+    // Kalau ada vehicle_detail dari inspection → auto-fill selector (case 2)
+    if (resBody?.data?.inspection?.vehicle_detail) {
+      const inspection = resBody.data.inspection
+      const vd         = inspection.vehicle_detail
+      applyVehicleDetail({
+        brand:         vd.brand,
+        model:         vd.model,
+        type:          vd.type,
+        year:          vd.year,
+        cc:            vd.cc,
+        transmission:  vd.transmission,
+        fuel_type:     vd.fuel_type,
+        market_period: vd.market_period,
+        vehicle_id:    vd.vehicle_id ?? inspection.vehicle_id,
+        vehicle_name:  vd.vehicle_name ?? inspection.vehicle_name,
+      })
+      plateDataSeeded.value = true
+    }
+  } catch (e: any) {
+    // Case 1: success:false → axios throw 4xx, ambil message dari response body
+    const msg = e?.response?.data?.message
+    if (msg) {
+      plateInvalidMsg.value = msg
+    }
+  } finally {
+    plateChecking.value = false
+  }
+}
+
+// ── Apply vehicle detail (dari plate check atau initialVehicleDetail) ─────
+const applyVehicleDetail = (d: NonNullable<typeof props.initialVehicleDetail>) => {
+  const brandOpt = parseIdOpt(d!.brand)
+  const modelOpt = parseIdOpt(d!.model)
+  const typeOpt  = parseIdOpt(d!.type)
+  const transOpt = parseIdOpt(d!.transmission)
+  const ccNum    = parseCcVal(d!.cc)
+
+  if (brandOpt && modelOpt && typeOpt && transOpt && ccNum !== null) {
+    sel.brand        = brandOpt
+    sel.model        = modelOpt
+    sel.type         = typeOpt
+    sel.year         = d!.year ? Number(d!.year) : null
+    sel.cc           = ccNum
+    if (typeof d!.cc === 'object' && d!.cc && 'name' in d!.cc) {
+      selCcName.value = (d!.cc as CcOpt).name
+    }
+    sel.transmission = transOpt
+    sel.fuelType     = d!.fuel_type ?? ''
+    sel.marketPeriod = d!.market_period ?? ''
+
+    if (d!.vehicle_id && d!.vehicle_name) {
+      setVehicle(d!.vehicle_id, d!.vehicle_name)
+    }
+
+    // Isi transmisi di background agar radio pills tampil
+    options.transmission = []
+    fetchTransmissions()
+  }
+}
+
+// ── Errors & detailError ──────────────────────────────────────
 const errors      = reactive({ area: '', number: '', suffix: '' })
 const detailError = ref('')
 
@@ -330,7 +538,6 @@ const sel = reactive({
   marketPeriod: '',
 })
 
-// Simpan cc name ("1.5L") agar bisa tampil sebelum options.cc terisi
 const selCcName = ref('')
 
 // ── Helper parse ──────────────────────────────────────────────
@@ -434,12 +641,10 @@ const doFetchVehicleDetail = async () => {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// PICK HANDLERS — setelah pilih, langsung prefetch level berikutnya
-// ─────────────────────────────────────────────────────────────
+// ── Pick handlers ─────────────────────────────────────────────
 const onPickBrand = (v: IdOpt) => {
   resetFrom('model'); sel.brand = v
-  fetchModels()   // prefetch model di background
+  fetchModels()
 }
 const onPickModel = (v: IdOpt) => {
   resetFrom('type'); sel.model = v
@@ -455,7 +660,7 @@ const onPickYear = (v: YearOpt) => {
 }
 const onPickCc = (v: CcOpt) => {
   resetFrom('transmission'); sel.cc = v.cc; selCcName.value = v.name
-  fetchTransmissions()  // langsung fetch → transmisi radio pills langsung muncul
+  fetchTransmissions()
 }
 const onPickTransmission = (v: IdOpt) => {
   sel.transmission = v
@@ -475,7 +680,7 @@ const onPickMarketPeriod = async (v: MktOpt) => {
   await doFetchVehicleDetail()
 }
 
-// OPEN HANDLERS — request hanya jika options belum terisi
+// Open handlers — request hanya kalau options belum ada
 const onOpenBrand        = () => fetchBrands()
 const onOpenModel        = () => fetchModels()
 const onOpenType         = () => fetchTypes()
@@ -491,7 +696,7 @@ onMounted(async () => {
   const d = props.initialVehicleDetail
 
   if (!d) {
-    // Mode baru: tidak ada data, fetch brands saja untuk dropdown pertama
+    // Mode baru: tidak ada data
     fetchBrands()
     return
   }
@@ -504,36 +709,15 @@ onMounted(async () => {
 
   // ── FORMAT BARU (semua ada id) ────────────────────────────
   if (brandOpt && modelOpt && typeOpt && transOpt && ccNum !== null) {
-    sel.brand        = brandOpt
-    sel.model        = modelOpt
-    sel.type         = typeOpt
-    sel.year         = d.year ? Number(d.year) : null
-    sel.cc           = ccNum
-    // cc name untuk tampilan sebelum options.cc di-fetch
-    if (typeof d.cc === 'object' && d.cc && 'name' in d.cc) selCcName.value = (d.cc as CcOpt).name
-    sel.transmission = transOpt
-    sel.fuelType     = d.fuel_type ?? ''
-    sel.marketPeriod = d.market_period ?? ''
+    applyVehicleDetail(d)
 
-    if (d.vehicle_id && d.vehicle_name) {
-      setVehicle(d.vehicle_id, d.vehicle_name)
-    }
-
-    // Isi options.transmission dari data existing agar radio pills langsung tampil
-    // (hanya 1 item — nanti kalau user ubah CC akan di-fetch ulang)
-    // if (transOpt) options.transmission = [transOpt]
-
-    options.transmission = []
-      fetchTransmissions() 
-
-    // Tidak ada request saat mount — sel sudah terisi, UI sudah tampil.
-    // Request hanya terjadi saat user klik dropdown (via onOpen handler)
-    // atau saat user pilih nilai baru (via onPick → prefetch berikutnya).
+    // Mark seeded → tidak akan auto-check plate saat mount
+    // (plate check hanya kalau user edit nopol)
+    plateDataSeeded.value = true
     return
   }
 
   // ── FORMAT LAMA (string only) ─────────────────────────────
-  // Tampilkan nama dulu, resolve id di background secara berurutan
   const brandName = typeof d.brand === 'string' ? d.brand : (d.brand as any)?.name ?? ''
   const modelName = typeof d.model === 'string' ? d.model : (d.model as any)?.name ?? ''
   const typeName  = typeof d.type  === 'string' ? d.type  : (d.type  as any)?.name ?? ''
@@ -547,6 +731,8 @@ onMounted(async () => {
   if (transName) sel.transmission = { id: 0, name: transName }
   if (d.fuel_type)     sel.fuelType     = d.fuel_type
   if (d.market_period) sel.marketPeriod = d.market_period
+
+  plateDataSeeded.value = true
 
   try {
     await fetchBrands()
@@ -601,7 +787,6 @@ onMounted(async () => {
 
 // ─────────────────────────────────────────────────────────────
 // SelectField — dropdown pakai fixed positioning + Teleport
-// agar tidak terpotong oleh overflow:auto di parent modal
 // ─────────────────────────────────────────────────────────────
 const SelectField = defineComponent({
   name: 'SelectField',
@@ -622,9 +807,8 @@ const SelectField = defineComponent({
     const calcPos = () => {
       if (!btnRef.value) return
       const r = btnRef.value.getBoundingClientRect()
-      // Cek apakah cukup ruang di bawah, kalau tidak buka ke atas
       const spaceBelow = window.innerHeight - r.bottom
-      const dropH      = Math.min(224, p.options.length * 44 + 16) // max-h-56 = 224px
+      const dropH      = Math.min(224, p.options.length * 44 + 16)
       const openUp     = spaceBelow < dropH && r.top > dropH
 
       dropStyle.value = {
@@ -638,7 +822,6 @@ const SelectField = defineComponent({
       if (p.disabled) return
       if (!isOpen.value) {
         emit('open')
-        // Hitung posisi setelah DOM update
         setTimeout(calcPos, 0)
       }
       isOpen.value = !isOpen.value
@@ -646,12 +829,10 @@ const SelectField = defineComponent({
     const close = () => { isOpen.value = false }
     const pick  = (opt: any) => { emit('pick', opt); close() }
 
-    // Recalculate on scroll/resize
     const onScroll = () => { if (isOpen.value) calcPos() }
 
     return () => h('div', { class: 'relative' }, [
 
-      // Trigger button
       h('button', {
         ref:      btnRef,
         type:     'button',
@@ -676,18 +857,13 @@ const SelectField = defineComponent({
             }, [h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M19 9l-7 7-7-7' })]),
       ]),
 
-      // Portal dropdown ke body — tidak terpotong overflow modal
       isOpen.value
         ? h(Teleport, { to: 'body' }, [
-
-            // Backdrop tutup
             h('div', {
-              class:   'fixed inset-0 z-[60]',
-              onClick: close,
+              class:    'fixed inset-0 z-[60]',
+              onClick:  close,
               onScroll: onScroll,
             }),
-
-            // Dropdown list — fixed position
             h('div', {
               class: 'fixed z-[61] bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden max-h-56 overflow-y-auto overscroll-contain',
               style: dropStyle.value,

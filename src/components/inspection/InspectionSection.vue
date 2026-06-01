@@ -211,7 +211,7 @@ const hasLocalValue = (itemId: number): boolean => {
   if (v === undefined || v === null || v === '') return false
   if (Array.isArray(v) && v.length === 0) return false
   if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) return false
-  const storeImages = imageStore.getImagesBySection(itemId)
+  const storeImages = imageStore.getImagesBySection(itemId, props.inspectionId)
   if (storeImages.length > 0) return true
   return true
 }

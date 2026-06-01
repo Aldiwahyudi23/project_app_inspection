@@ -5,6 +5,21 @@
 
   show_option: setelah gambar diupload, muncul RadioInput untuk memilih opsi.
   Flat format: localOptionValue = { status, note?, image?, damage_ids? }
+
+  Modal strategy:
+  - State buka/tutup pakai local ref (showSourceModal, showPreviewModal, showTempGallery)
+  - Saat buka → daftarkan ke modal store (untuk back button handler di App.vue)
+  - Saat modal store di-close via back button → watch currentModal untuk sync local ref
+
+  [FIX] v3:
+  1. syncExistingImages — tidak bail out kalau inspectionId null saat mount,
+     retry via nextTick sampai resolvedInspectionId tersedia.
+  2. syncExistingImages — guard alreadySynced filter by inspectionId,
+     bukan seluruh store (cegah skip gambar inspeksi berbeda dengan sectionId sama).
+  3. Tambah watch(resolvedInspectionId) — trigger sync ulang kalau props.inspectionId
+     datang terlambat dari parent (async route param).
+  4. watch(modelValue) — guard alreadySynced pakai inspectionId juga.
+  5. onUnmounted — hanya 1 blok (sebelumnya ada duplikat 2x onUnmounted).
 -->
 <template>
   <div class="space-y-3">
@@ -23,16 +38,15 @@
              00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
       </svg>
       <p class="text-sm text-gray-600 mt-2">Klik untuk upload gambar</p>
-      
-    <div class="flex justify-center mt-1">
+
+      <div class="flex justify-center mt-1">
         <p v-if="props.item.is_required" class="text-xs text-red-400">
-          Wajib di isi 
+          Wajib di isi
         </p>
         <p class="text-xs text-gray-400">
           &nbsp;{{ maxFiles > 1 ? `Maksimal ${maxFiles} gambar` : 'Maksimal 1 gambar' }}
         </p>
-    </div>
-      
+      </div>
     </div>
 
     <!-- ================= SINGLE MODE ================= -->
@@ -100,7 +114,6 @@
     ==================================================== -->
     <div
       v-if="settings?.show_option === true && options.length > 0 && sectionImages.length > 0"
-      class="mt-4 pt-3 border-t border-gray-200"
     >
       <RadioInput
         :item="radioItem"
@@ -116,17 +129,16 @@
 
   </div>
 
-  <!-- Modals -->
+  <!-- ===================== MODALS ===================== -->
+
   <ImageSourceModal
     :show="showSourceModal"
-      :has-temp-images="hasTempImages"
-      :temp-count="tempImagesCount"
-    @close="showSourceModal = false"
+    :has-temp-images="hasTempImages"
+    :temp-count="tempImagesCount"
+    @close="closeSourceModal"
     @select="handleSourceSelect"
   />
 
-    <!-- Modal assign dari temp gallery — muncul saat user pilih 'Foto Bebas' -->
-  <!-- sections=[] karena mode ini langsung assign ke item aktif (props.item) -->
   <UnassignedGalleryModal
     v-if="showTempGallery"
     :show="showTempGallery"
@@ -134,7 +146,7 @@
     :sections="[]"
     :target-item="item"
     :max-files="remainingSlots"
-    @close="showTempGallery = false"
+    @close="closeTempGallery"
     @assigned="handleTempAssigned"
   />
 
@@ -153,55 +165,38 @@
     :initial-option-value="previewOptionValue"
     @close="handlePreviewClose"
     @save="handlePreviewSave"
-    @add-more="handleAddImage"
+    @add-more="handleAddFromPreview"
     @remove-stored="store.removeImage($event)"
   />
 
-  <!-- untuk android capasitor -->
-  <CameraView
-    v-if="showNativeCamera"
-    @photo="handleNativePhoto"
-    @close="showNativeCamera = false"
-  />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import type { FormItem } from '../../../types/formInspection'
-import { useCameraSettings }      from '../../../composables/useCameraSettings'
-import { useImageUploadStore }    from '../../../stores/useImageUploadStore'
-import ImageSourceModal  from './Image/ImageSourceModal.vue'
-import ImagePreviewModal from './Image/ImagePreviewModal.vue'
-import ImageThumbnail   from './Image/ImageThumbnail.vue'
-import CameraView from './Image/CameraView.vue'
-import RadioInput        from './RadioInput.vue'
-import UnassignedGalleryModal from './Image/Temp/UnassignedGalleryModal.vue'
-import { useTempImageStore } from '../../../stores/useTempImageStore'
-import type { RadioFlatValue } from './RadioInput.vue'
-import { Capacitor } from '@capacitor/core'
-
+import { useCameraSettings }          from '../../../composables/useCameraSettings'
+import { useImageUploadStore }        from '../../../stores/useImageUploadStore'
+import { useModalStore }              from '../../../stores/useModalStore'
+import ImageSourceModal               from './Image/ImageSourceModal.vue'
+import ImagePreviewModal              from './Image/ImagePreviewModal.vue'
+import ImageThumbnail                 from './Image/ImageThumbnail.vue'
+import RadioInput                     from './RadioInput.vue'
+import UnassignedGalleryModal         from './Image/Temp/UnassignedGalleryModal.vue'
+import { useTempImageStore }          from '../../../stores/useTempImageStore'
+import type { RadioFlatValue }        from './RadioInput.vue'
+import { Capacitor }                  from '@capacitor/core'
+import { Filesystem }                 from '@capacitor/filesystem'
 
 // ─────────────────────────────────────────────────────────────
 // PROPS & EMITS
 // ─────────────────────────────────────────────────────────────
 
-/**
- * modelValue untuk ImageInput dengan show_option:
- *   {
- *     image:      [{id, image_url, caption}],  ← gambar
- *     status?:    string,                       ← option yang dipilih
- *     note?:      string | null,                ← textarea di option
- *     damage_ids?: number[]
- *   }
- *
- * Tanpa show_option: modelValue = [{id, image_url, caption}]
- */
 const props = defineProps<{
-  item:                FormItem
-  modelValue:          any
-  error?:              string
-  inspectionId?:       number | string | null
-  selectedOptionValue?: string | null   // untuk upload backend (tidak dipakai di sini)
+  item:                 FormItem
+  modelValue:           any
+  error?:               string
+  inspectionId?:        number | string | null
+  selectedOptionValue?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -211,60 +206,91 @@ const emit = defineEmits<{
   (e: 'update:uploadStatus', status: { hasUploading: boolean; hasFailed: boolean }): void
 }>()
 
-const previewOptionValue = ref<any>(null)
+// ─────────────────────────────────────────────────────────────
+// MODAL STORE
+// ─────────────────────────────────────────────────────────────
+
+const modalStore = useModalStore()
+
+const MODAL_SOURCE  = computed(() => `img-source-${props.item.id}`)
+const MODAL_PREVIEW = computed(() => `img-preview-${props.item.id}`)
+const MODAL_TEMP    = computed(() => `img-temp-${props.item.id}`)
+
+const showSourceModal  = ref(false)
+const showPreviewModal = ref(false)
+const showTempGallery  = ref(false)
+
+const openSourceModal  = () => { showSourceModal.value  = true; modalStore.open(MODAL_SOURCE.value)  }
+const openPreviewModal = () => { showPreviewModal.value = true; modalStore.open(MODAL_PREVIEW.value) }
+const openTempGallery  = () => { showTempGallery.value  = true; modalStore.open(MODAL_TEMP.value)   }
+
+const closeSourceModal = () => {
+  forceHideTemp.value   = false
+  showSourceModal.value = false
+  if (modalStore.currentModal === MODAL_SOURCE.value) modalStore.close()
+}
+const closeTempGallery = () => {
+  showTempGallery.value = false
+  if (modalStore.currentModal === MODAL_TEMP.value) modalStore.close()
+}
+
+const forceHideTemp = ref(false)
+
+const handleAddFromPreview = () => {
+  forceHideTemp.value = true
+  handleAddImage()
+}
+
+watch(
+  () => modalStore.currentModal,
+  (current, previous) => {
+    if (showSourceModal.value && current !== MODAL_SOURCE.value) {
+      showSourceModal.value = false
+    }
+    if (showPreviewModal.value && previous === MODAL_PREVIEW.value && current !== MODAL_PREVIEW.value) {
+      const isChildModalOpened = current === MODAL_SOURCE.value || current === MODAL_TEMP.value
+      if (!isChildModalOpened) _cleanupPreviewOnClose()
+    }
+    if (showTempGallery.value && current !== MODAL_TEMP.value) {
+      if (previous === MODAL_TEMP.value) showTempGallery.value = false
+    }
+  }
+)
+
+const _cleanupPreviewOnClose = () => {
+  showPreviewModal.value = false
+  if (isPreviewForNew.value) {
+    pendingPreviewImages.value.forEach(img => {
+      if (img._isNew && img.url?.startsWith('blob:')) URL.revokeObjectURL(img.url)
+    })
+    pendingPreviewImages.value = []
+  }
+  isPreviewForNew.value = false
+}
 
 // ─────────────────────────────────────────────────────────────
 // STORE & CAMERA
 // ─────────────────────────────────────────────────────────────
 
-const store = useImageUploadStore()
+const store     = useImageUploadStore()
 const tempStore = useTempImageStore()
 const { settings: cameraSettings, listenForChanges } = useCameraSettings()
+
 const localCameraSource        = ref(cameraSettings.value.source)
 const localPreviewBeforeUpload = ref(cameraSettings.value.previewBeforeUpload ?? true)
+const previewOptionValue       = ref<any>(null)
 
-//khusus android capasitor
 const isNative = Capacitor.isNativePlatform()
-const showNativeCamera = ref(false)
 
 let cleanupListener: (() => void) | undefined
-
-onMounted(() => {
-  cleanupListener = listenForChanges((s) => {
-    localCameraSource.value        = s.source
-    localPreviewBeforeUpload.value = s.previewBeforeUpload ?? true
-  })
-  _syncExistingImages()
-})
-onUnmounted(() => { if (cleanupListener) cleanupListener() })
-watch(cameraSettings, (v) => {
-  localCameraSource.value        = v.source
-  localPreviewBeforeUpload.value = v.previewBeforeUpload ?? true
-}, { deep: true })
-
-// Re-sync saat modelValue datang dari luar (mis. loadForm restore current_result dari backend).
-// Kasus: komponen sudah mount tapi formValues baru diisi setelah loadForm selesai,
-// sehingga onMounted._syncExistingImages() belum punya data.
-// Guard: hanya sync jika store belum punya gambar untuk section ini (cegah sync ganda).
-watch(
-  () => props.modelValue,
-  (mv) => {
-    if (!mv) return
-    const alreadySynced = store.getImagesBySection(resolvedSectionId.value).length > 0
-    if (alreadySynced) return
-    _syncExistingImages()
-  },
-  { immediate: false }
-)
 
 // ─────────────────────────────────────────────────────────────
 // COMPUTED HELPERS
 // ─────────────────────────────────────────────────────────────
 
-const settings = computed(() => props.item.settings || {})
-const options  = computed(() => settings.value?.options || [])
-const maxFiles = computed(() => settings.value?.max_files ?? 1)
-const remainingSlots = computed(() => Math.max(0, maxFiles.value - sectionImages.value.length))
+const settings      = computed(() => props.item.settings || {})
+const options       = computed(() => settings.value?.options || [])
+const maxFiles      = computed(() => settings.value?.max_files ?? 1)
 const hasShowOption = computed(() => settings.value?.show_option === true && options.value.length > 0)
 
 const resolvedInspectionId = computed<number | null>(() => {
@@ -275,25 +301,32 @@ const resolvedInspectionId = computed<number | null>(() => {
 
 const resolvedSectionId = computed(() => props.item.id)
 
-const sectionImages = computed(() => store.getImagesBySection(resolvedSectionId.value))
-
-// Cek apakah ada foto bebas yang belum diassign ke item manapun
-const hasTempImages = computed(() =>
+// [FIX] Filter by inspectionId agar tidak bocor lintas inspeksi
+const sectionImages = computed(() =>
   resolvedInspectionId.value !== null
+    ? store.getImagesBySection(resolvedSectionId.value, resolvedInspectionId.value)
+    : []
+)
+
+const usedSlots      = computed(() => showPreviewModal.value ? pendingPreviewImages.value.length : sectionImages.value.length)
+const remainingSlots = computed(() => Math.max(0, maxFiles.value - usedSlots.value))
+
+const hasTempImages = computed(() => {
+  if (forceHideTemp.value) return false
+  return resolvedInspectionId.value !== null
     ? tempStore.hasUnassigned(resolvedInspectionId.value)
     : false
-)
+})
+
 const tempImagesCount = computed(() =>
-  resolvedInspectionId.value !== null
-    ? tempStore.unassignedCount(resolvedInspectionId.value)
-    : 0
+  resolvedInspectionId.value !== null ? tempStore.unassignedCount(resolvedInspectionId.value) : 0
 )
 
 const firstImage = computed<import('../../../stores/useImageUploadStore').InspectionImage | undefined>(
   () => sectionImages.value[0]
 )
 
-const isMaxFilesReached = computed(() => sectionImages.value.length >= maxFiles.value)
+const isMaxFilesReached  = computed(() => sectionImages.value.length >= maxFiles.value)
 
 const allowedMimesString = computed(() => {
   const mimes = settings.value?.allowed_mimes || ['jpg', 'jpeg', 'png', 'webp']
@@ -301,15 +334,171 @@ const allowedMimesString = computed(() => {
 })
 
 // ─────────────────────────────────────────────────────────────
-// SHOW_OPTION — local state untuk RadioInput (flat)
-//
-// Ketika show_option=true, formValues[itemId] menyimpan:
-//   { image: [...], status: "Ada", note: "...", damage_ids: [] }
-//
-// Kita pisahkan image dari option value agar RadioInput bersih.
+// FUNGSI SYNC
 // ─────────────────────────────────────────────────────────────
 
-// Ambil option value flat dari modelValue (jika ada)
+function syncExistingImages() {
+  const mv = props.modelValue
+  if (!mv) return
+
+  let serverImages: Array<{ id: number; image_url: string; caption?: string | null }> = []
+
+  if (Array.isArray(mv)) {
+    serverImages = mv.filter((img: any) => img?.id && img?.image_url)
+  } else if (mv && typeof mv === 'object') {
+    const imgArr = mv.image ?? mv.images ?? mv
+    if (Array.isArray(imgArr)) {
+      serverImages = imgArr.filter((img: any) => img?.id && img?.image_url)
+    }
+  }
+
+  if (!serverImages.length) return
+
+  if (resolvedInspectionId.value === null) {
+    nextTick(() => syncExistingImages())
+    return
+  }
+
+  const existingInStore = store.getImagesBySection(
+    resolvedSectionId.value,
+    resolvedInspectionId.value
+  )
+  
+  // UBAH: cek apakah server images sudah ada di store (by serverId)
+  // Sebelumnya bail out kalau ada 1 pun gambar di store — terlalu greedy
+  const existingServerIds = new Set(existingInStore.map(img => img.serverId))
+  const missingImages = serverImages.filter(img => !existingServerIds.has(img.id))
+  
+  if (missingImages.length === 0) return // semua sudah ada
+
+  store.syncFromServer({
+    serverImages: missingImages, // sync hanya yang belum ada
+    sectionId:        resolvedSectionId.value,
+    itemId:           props.item.id,
+    inspectionItemId: props.item.inspection_item_id,
+    inspectionId:     resolvedInspectionId.value,
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
+// CAMERAX
+// ─────────────────────────────────────────────────────────────
+
+const handleCameraXResult = async (event: Event) => {
+  const result = (event as CustomEvent).detail
+  if (!result?.success) {
+    emit('update:error', result?.error || 'Gagal mengambil foto')
+    return
+  }
+
+  const resultItemId  = result.itemId
+  const currentItemId = String(props.item.id)
+  if (resultItemId && resultItemId !== currentItemId) return
+
+  const path = result.path
+  if (!path) { emit('update:error', 'Path foto tidak ditemukan'); return }
+
+  try {
+    const fileResult = await Filesystem.readFile({ path: `file://${path}` })
+    const base64Data = fileResult.data
+    if (!base64Data) throw new Error('Data base64 kosong')
+
+    let base64String: string
+    if (base64Data instanceof Blob) {
+      base64String = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const r = reader.result
+          if (typeof r !== 'string') { reject(new Error('Hasil FileReader bukan string')); return }
+          const parts = r.split(',')
+          resolve(parts.length > 1 ? parts[1]! : r)
+        }
+        reader.onerror = () => reject(new Error('Gagal membaca Blob'))
+        reader.readAsDataURL(base64Data)
+      })
+    } else {
+      base64String = base64Data
+    }
+
+    const byteString = atob(base64String)
+    const ab = new ArrayBuffer(byteString.length)
+    const ia = new Uint8Array(ab)
+    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i)
+
+    const blob = new Blob([ab], { type: 'image/jpeg' })
+    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
+    processFiles([file])
+
+  } catch (err: any) {
+    emit('update:error', `Error: ${err.message || 'Tidak bisa membaca file'}`)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// LIFECYCLE — hanya 1 blok onUnmounted
+// ─────────────────────────────────────────────────────────────
+
+onMounted(() => {
+  cleanupListener = listenForChanges((s) => {
+    localCameraSource.value        = s.source
+    localPreviewBeforeUpload.value = s.previewBeforeUpload ?? true
+  })
+
+  syncExistingImages()
+
+  window.addEventListener('cameraXResult', handleCameraXResult)
+
+  if (!(window as any)._cameraXBridgeReady) {
+    ;(window as any).onCameraXResult = (result: any) => {
+      window.dispatchEvent(new CustomEvent('cameraXResult', { detail: result }))
+    }
+    ;(window as any)._cameraXBridgeReady = true
+  }
+})
+
+// [FIX] Digabung jadi 1 blok — sebelumnya ada 2x onUnmounted (duplikat)
+onUnmounted(() => {
+  if (cleanupListener) cleanupListener()
+  window.removeEventListener('cameraXResult', handleCameraXResult)
+  modalStore.removeByKey(MODAL_SOURCE.value)
+  modalStore.removeByKey(MODAL_PREVIEW.value)
+  modalStore.removeByKey(MODAL_TEMP.value)
+})
+
+watch(cameraSettings, (v) => {
+  localCameraSource.value        = v.source
+  localPreviewBeforeUpload.value = v.previewBeforeUpload ?? true
+}, { deep: true })
+
+// [FIX] Guard alreadySynced pakai inspectionId
+watch(
+  () => props.modelValue,
+  (mv) => {
+    if (!mv || resolvedInspectionId.value === null) return
+    const alreadySynced = store.getImagesBySection(
+      resolvedSectionId.value,
+      resolvedInspectionId.value
+    ).length > 0
+    if (alreadySynced) return
+    syncExistingImages()
+  },
+  { immediate: false }
+)
+
+// [FIX] Kalau props.inspectionId datang terlambat (async dari parent route),
+// begitu resolvedInspectionId berubah dari null ke angka → sync langsung
+watch(
+  resolvedInspectionId,
+  (newId, oldId) => {
+    if (!newId || newId === oldId) return
+    syncExistingImages()
+  }
+)
+
+// ─────────────────────────────────────────────────────────────
+// SHOW_OPTION
+// ─────────────────────────────────────────────────────────────
+
 const localOptionValue = computed<RadioFlatValue | null>(() => {
   if (!hasShowOption.value) return null
   const mv = props.modelValue
@@ -326,33 +515,19 @@ const localOptionValue = computed<RadioFlatValue | null>(() => {
 const optionError = ref('')
 const optionValid = ref(true)
 
-// ─────────────────────────────────────────────────────────────
-// EMIT VALID
-// Untuk image dengan show_option:
-//   valid = gambar ada DAN (option required → option terisi)
-// Untuk image biasa:
-//   valid = gambar ada (kalau required)
-// ─────────────────────────────────────────────────────────────
-
 const computeValid = (): boolean => {
-  const allImgs  = sectionImages.value
-  const doneImgs = allImgs.filter(img => img.status === 'done')
-
-  // Ada gambar pending/uploading → belum bisa valid, tapi juga belum invalid
-  // Navigation sudah handle via uploadStatus badge — kembalikan false agar badge muncul
+  const allImgs    = sectionImages.value
+  const doneImgs   = allImgs.filter(img => img.status === 'done')
   const hasPending = allImgs.some(img => img.status === 'pending' || img.status === 'uploading')
 
   if (props.item.is_required) {
-    // Tidak ada gambar sama sekali → invalid
     if (allImgs.length === 0) return false
-    // Ada gambar tapi semua masih uploading / belum selesai → false (badge upload aktif)
     if (doneImgs.length === 0 && hasPending) return false
   }
 
   if (hasShowOption.value && doneImgs.length > 0) {
     const optRequired = settings.value?.option_is_required === true
     if (optRequired && !localOptionValue.value?.status) return false
-    // Nested valid dikompute di dalam RadioInput, hasilnya ada di optionValid
     if (localOptionValue.value?.status && !optionValid.value) return false
   }
 
@@ -366,56 +541,35 @@ watch(
 )
 
 // ─────────────────────────────────────────────────────────────
-// SYNC GAMBAR SERVER KE STORE
+// SYNC STORE → EMIT MODELVALUE
 // ─────────────────────────────────────────────────────────────
 
-const _syncExistingImages = () => {
-  const mv = props.modelValue
-  if (!mv) return
-
-  let serverImages: Array<{ id: number; image_url: string; caption?: string | null }> = []
-
-  // modelValue bisa array atau { image: [...], status: ... }
-  if (Array.isArray(mv)) {
-    serverImages = mv.filter((img: any) => img?.id && img?.image_url)
-  } else if (mv && typeof mv === 'object') {
-    const imgArr = mv.image ?? mv.images ?? mv
-    if (Array.isArray(imgArr)) {
-      serverImages = imgArr.filter((img: any) => img?.id && img?.image_url)
-    }
-  }
-
-  if (!serverImages.length || resolvedInspectionId.value === null) return
-
-  store.syncFromServer({
-    serverImages,
-    sectionId:        resolvedSectionId.value,
-    itemId:           props.item.id,
-    inspectionItemId: props.item.inspection_item_id,
-    inspectionId:     resolvedInspectionId.value,
-  })
-}
-
-// ─────────────────────────────────────────────────────────────
-// SYNC STORE → emit modelValue
-// ─────────────────────────────────────────────────────────────
-
+// [FIX] hasPendingUploads & hasFailedUploads pakai 2 argumen (+ inspectionId)
 watch(
   () => {
     void store.images
     return [
-      store.hasPendingUploads(resolvedSectionId.value),
-      store.hasFailedUploads(resolvedSectionId.value),
+      store.hasPendingUploads(resolvedSectionId.value, resolvedInspectionId.value ?? 0),
+      store.hasFailedUploads(resolvedSectionId.value,  resolvedInspectionId.value ?? 0),
     ] as [boolean, boolean]
   },
   ([hasUploading, hasFailed]) => {
-    emit('update:uploadStatus', { hasUploading: hasUploading as boolean, hasFailed: hasFailed as boolean })
+    emit('update:uploadStatus', {
+      hasUploading: hasUploading as boolean,
+      hasFailed:    hasFailed    as boolean,
+    })
   }
 )
 
 watch(
   sectionImages,
-  (imgs) => {
+  (imgs, prevImgs) => {
+    // GUARD: jangan emit apapun saat store sedang di-clear
+    if (store.isClearing) return
+
+    const hasPending = imgs.some(img => img.status === 'pending' || img.status === 'uploading')
+    if (hasPending) return
+
     const doneImages = imgs
       .filter(img => img.status === 'done')
       .map(img => ({
@@ -424,8 +578,20 @@ watch(
         caption:   img.caption ?? null,
       }))
 
+    if (doneImages.length === 0) {
+      const prevHadDone = prevImgs && prevImgs.some(img => img.status === 'done')
+      if (!prevHadDone) {
+        const currentMv = props.modelValue
+        const currentHasImages = hasShowOption.value
+          ? (currentMv && typeof currentMv === 'object' && !Array.isArray(currentMv)
+              ? (Array.isArray(currentMv.image) && currentMv.image.length > 0)
+              : false)
+          : (Array.isArray(currentMv) && currentMv.length > 0)
+        if (currentHasImages) return
+      }
+    }
+
     if (hasShowOption.value) {
-      // Merge gambar + option value
       const mv = props.modelValue
       const currentOption = (mv && typeof mv === 'object' && !Array.isArray(mv))
         ? { status: mv.status, note: mv.note, damage_ids: mv.damage_ids }
@@ -439,7 +605,7 @@ watch(
 )
 
 // ─────────────────────────────────────────────────────────────
-// RADIO ITEM (untuk show_option)
+// RADIO ITEM
 // ─────────────────────────────────────────────────────────────
 
 const radioItem = computed(() => ({
@@ -474,9 +640,9 @@ const handleOptionValueUpdate = (value: RadioFlatValue | null) => {
 
   emit('update:modelValue', {
     image:      currentImages,
-    status:     value?.status      ?? null,
-    note:       value?.note        ?? null,
-    damage_ids: value?.damage_ids  ?? [],
+    status:     value?.status     ?? null,
+    note:       value?.note       ?? null,
+    damage_ids: value?.damage_ids ?? [],
   })
 }
 
@@ -485,16 +651,13 @@ const handleOptionValidUpdate = (valid: boolean) => {
 }
 
 // ─────────────────────────────────────────────────────────────
-// FILE INPUT & MODAL
+// FILE INPUT & MODAL HANDLERS
 // ─────────────────────────────────────────────────────────────
 
-const fileInput         = ref<HTMLInputElement | null>(null)
-const showSourceModal   = ref(false)
-const showPreviewModal  = ref(false)
-const showTempGallery   = ref(false)
-const previewStartIndex = ref(0)
+const fileInput            = ref<HTMLInputElement | null>(null)
+const previewStartIndex    = ref(0)
 const pendingPreviewImages = ref<any[]>([])
-const isPreviewForNew   = ref(false)
+const isPreviewForNew      = ref(false)
 
 const storedPreviewImages = computed(() =>
   sectionImages.value.map(img => ({
@@ -510,27 +673,17 @@ const storedPreviewImages = computed(() =>
 
 const handleAddImage = () => {
   const source = localCameraSource.value
-  if      (source === 'ask')    showSourceModal.value = true
+  if      (source === 'ask')    openSourceModal()
   else if (source === 'camera') openFileInput('camera')
   else                          openFileInput('gallery')
 }
 
 const handleSourceSelect = (type: string) => {
-  showSourceModal.value = false
-    if (type === 'temp') {
-    // Buka galeri foto bebas untuk dipilih ke item ini
-    showTempGallery.value = true
-    return
-  }
+  closeSourceModal()
+  if (type === 'temp') { nextTick(() => openTempGallery()); return }
   openFileInput(type as 'camera' | 'gallery')
 }
 
-/**
- * Dipanggil saat user memilih foto dari temp gallery untuk di-assign ke item ini.
- * Assign sudah disimpan LOKAL di useTempImageStore (tidak ada request ke server).
- * Di sini kita sync ke ImageUploadStore agar sectionImages computed reaktif
- * dan thumbnail langsung tampil di ImageInput.
- */
 const handleTempAssigned = (
   _itemId: number,
   imageData: { id: number; image_url: string; caption: string | null }
@@ -538,7 +691,6 @@ const handleTempAssigned = (
   const inspId = resolvedInspectionId.value
   if (!inspId) return
 
-  // Sync ke ImageUploadStore agar sectionImages computed reaktif
   store.syncFromServer({
     serverImages:     [imageData],
     sectionId:        resolvedSectionId.value,
@@ -547,45 +699,29 @@ const handleTempAssigned = (
     inspectionId:     inspId,
   })
 
-  showTempGallery.value = false
+  closeTempGallery()
 }
 
-// const openFileInput = (type: 'camera' | 'gallery') => {
-//   if (!fileInput.value) return
-//   fileInput.value.value = ''
-//   fileInput.value.removeAttribute('capture')
-//   if (type === 'camera') fileInput.value.setAttribute('capture', 'environment')
-//   nextTick(() => fileInput.value?.click())
-// }
-
 const openFileInput = (type: 'camera' | 'gallery') => {
-  // Android + kamera → pakai Capacitor camera custom
   if (isNative && type === 'camera') {
-    showNativeCamera.value = true
+    if ((window as any).Android?.openCameraX) {
+      ;(window as any).Android.openCameraX(
+        String(props.item.id),
+        props.item.inspection_item?.name || 'Item',
+        settings.value?.aspect_ratio || '3:4'
+      )
+    } else {
+      console.error('Android plugin not available')
+      emit('update:error', 'Plugin Android tidak tersedia')
+    }
     return
   }
 
-  // Browser / galeri → tetap pakai input file biasa (tidak berubah)
   if (!fileInput.value) return
   fileInput.value.value = ''
   fileInput.value.removeAttribute('capture')
   if (type === 'camera') fileInput.value.setAttribute('capture', 'environment')
   nextTick(() => fileInput.value?.click())
-}
-
-const handleNativePhoto = (base64: string) => {
-  showNativeCamera.value = false
-
-  // Convert base64 → File object (sama seperti file input biasa)
-  const byteString = atob(base64)
-  const ab = new ArrayBuffer(byteString.length)
-  const ia = new Uint8Array(ab)
-  for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i)
-  const blob = new Blob([ab], { type: 'image/jpeg' })
-  const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
-
-  // Masuk ke processFiles() yang sudah ada — tidak ada perubahan di sini
-  processFiles([file])
 }
 
 const handleFileSelect = (e: Event) => {
@@ -601,9 +737,12 @@ const processFiles = (files: File[]) => {
 
   const valid: any[] = []
   for (const file of files) {
-    const ext = file.name.split('.').pop()?.toLowerCase()
-    if (!allowed.includes(ext || '')) { emit('update:error', 'Tipe file tidak diizinkan'); continue }
-    if (file.size > maxSize)          { emit('update:error', 'Ukuran file terlalu besar');  continue }
+    const ext           = file.name.split('.').pop()?.toLowerCase()
+    const isValidByExt  = allowed.includes(ext || '')
+    const isValidByMime = file.type.includes('image')
+    if (!isValidByExt && !isValidByMime) { emit('update:error', 'Tipe file tidak diizinkan'); continue }
+    if (!allowed.includes(ext || ''))    { emit('update:error', 'Tipe file tidak diizinkan'); continue }
+    if (file.size > maxSize)             { emit('update:error', 'Ukuran file terlalu besar');  continue }
     valid.push({ file, url: URL.createObjectURL(file), rotation: 0, _isNew: true })
   }
   if (!valid.length) return
@@ -619,25 +758,19 @@ const processFiles = (files: File[]) => {
     emit('update:error', `Hanya ${toAdd.length} gambar yang ditambahkan (batas ${maxFiles.value})`)
   }
 
- if (localPreviewBeforeUpload.value || showPreviewModal.value) {
+  if (localPreviewBeforeUpload.value || showPreviewModal.value) {
     if (showPreviewModal.value) {
-      const focusIndex = pendingPreviewImages.value.length
+      const focusIndex           = pendingPreviewImages.value.length
       pendingPreviewImages.value = [...pendingPreviewImages.value, ...toAdd]
       previewStartIndex.value    = focusIndex
-      // Kirim nilai option yang sudah ada
-      if (hasShowOption.value) {
-        previewOptionValue.value = localOptionValue.value
-      }
+      if (hasShowOption.value) previewOptionValue.value = localOptionValue.value
     } else {
-      const stored = storedPreviewImages.value
+      const stored               = storedPreviewImages.value
       pendingPreviewImages.value = [...stored, ...toAdd]
       previewStartIndex.value    = stored.length
       isPreviewForNew.value      = true
-      showPreviewModal.value     = true
-      // Kirim nilai option yang sudah ada
-      if (hasShowOption.value) {
-        previewOptionValue.value = localOptionValue.value
-      }
+      if (hasShowOption.value) previewOptionValue.value = localOptionValue.value
+      openPreviewModal()
     }
     return
   }
@@ -654,7 +787,7 @@ const processFiles = (files: File[]) => {
     itemId:              props.item.id,
     inspectionItemId:    props.item.inspection_item_id,
     inspectionId:        inspId,
-    selectedOptionValue: props.selectedOptionValue ,
+    selectedOptionValue: props.selectedOptionValue,
   })
 }
 
@@ -662,28 +795,23 @@ const openPreview = (index: number) => {
   pendingPreviewImages.value = storedPreviewImages.value
   previewStartIndex.value    = index
   isPreviewForNew.value      = false
-  showPreviewModal.value     = true
-  // Kirim nilai option yang sudah ada (jika ada)
-  if (hasShowOption.value) {
-    previewOptionValue.value = localOptionValue.value
-  }
+  if (hasShowOption.value) previewOptionValue.value = localOptionValue.value
+  openPreviewModal()
 }
 
 const handlePreviewSave = (savedData: any) => {
-  const savedImages = savedData.images || savedData // backward compatibility
+  const savedImages      = savedData.images || savedData
   const savedOptionValue = savedData.optionValue
-  
+
   showPreviewModal.value = false
+  if (modalStore.currentModal === MODAL_PREVIEW.value) modalStore.close()
   isPreviewForNew.value  = false
 
-  // Jika ada nilai option dari preview, update localOptionValue
   if (savedOptionValue && hasShowOption.value) {
-    // Update modelValue dengan nilai option yang dipilih di preview
     const mv = props.modelValue
     const currentImages = hasShowOption.value && mv && typeof mv === 'object' && !Array.isArray(mv)
       ? (mv.image ?? [])
       : (Array.isArray(mv) ? mv : [])
-    
     emit('update:modelValue', {
       image:      currentImages,
       status:     savedOptionValue.status,
@@ -730,14 +858,8 @@ const handlePreviewSave = (savedData: any) => {
 }
 
 const handlePreviewClose = () => {
-  showPreviewModal.value = false
-  if (isPreviewForNew.value) {
-    pendingPreviewImages.value.forEach(img => {
-      if (img._isNew && img.url?.startsWith('blob:')) URL.revokeObjectURL(img.url)
-    })
-    pendingPreviewImages.value = []
-  }
-  isPreviewForNew.value = false
+  _cleanupPreviewOnClose()
+  if (modalStore.currentModal === MODAL_PREVIEW.value) modalStore.close()
 }
 </script>
 

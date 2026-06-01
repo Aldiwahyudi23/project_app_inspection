@@ -71,3 +71,11 @@ export const saveInspectionVehicle = async (
   data: { license_plate: string; vehicle_id: number; vehicle_name: string }
 ) =>
   api.put(`/app-inspection/form-inspection/${inspectionId}/update`, data)
+
+  /// ─── Cek kendaraan by plat ───────────────────────────────────
+/** Cek kendaraan by plat: license_plate */
+export const checkVehicleByPlate = async (license_plate: string) =>
+  api.post('/app-inspection/vehicle/by-plate', null, {
+    params: { license_plate }  // pake params, bukan body
+  })
+  

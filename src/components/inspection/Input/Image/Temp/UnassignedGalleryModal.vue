@@ -289,6 +289,9 @@ import ImageSourceModal       from '../ImageSourceModal.vue'
 import ImagePreviewModal      from '../ImagePreviewModal.vue'
 import type { TempImage }     from '../../../../../stores/useTempImageStore'
 import type { FormItem }      from '../../../../../types/formInspection'
+import { Capacitor } from '@capacitor/core'
+import { Filesystem } from '@capacitor/filesystem'
+
 
 const props = defineProps<{
   show:         boolean
@@ -341,15 +344,83 @@ watch(() => props.show, (val) => {
   else     unlockBodyScroll()
 }, { immediate: true })
 
+// ── Detect native platform ───────────────────────────────────
+const isNative = Capacitor.isNativePlatform()
+
+// ── CameraX handler ──────────────────────────────────────────
+const handleCameraXResult = async (event: Event) => {
+  const result = (event as CustomEvent).detail
+  if (!result?.success) {
+    console.error('CameraX error:', result?.error)
+    return
+  }
+
+  const path = result.path
+  if (!path) {
+    console.error('Path foto tidak ditemukan')
+    return
+  }
+
+  try {
+    const fileResult = await Filesystem.readFile({ path: `file://${path}` })
+    const base64Data = fileResult.data
+    if (!base64Data) throw new Error("Data base64 kosong")
+
+    let base64String: string
+    if (base64Data instanceof Blob) {
+      base64String = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = reader.result
+          if (typeof result !== 'string') {
+            reject(new Error("Hasil FileReader bukan string"))
+            return
+          }
+          const parts = result.split(',')
+          resolve(parts.length > 1 ? parts[1]! : result)
+        }
+        reader.onerror = () => reject(new Error("Gagal membaca Blob"))
+        reader.readAsDataURL(base64Data)
+      })
+    } else {
+      base64String = base64Data
+    }
+
+    const byteString = atob(base64String)
+    const ab = new ArrayBuffer(byteString.length)
+    const ia = new Uint8Array(ab)
+    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i)
+
+    const blob = new Blob([ab], { type: 'image/jpeg' })
+    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
+    processFiles([file])
+
+  } catch (err: any) {
+    console.error('Error processing camera result:', err)
+  }
+}
+
 onMounted(() => {
   cleanupListener = listenForChanges((s) => {
     localCameraSource.value        = s.source
     localPreviewBeforeUpload.value = s.previewBeforeUpload ?? true
   })
+
+  // Daftarkan listener untuk CameraX
+  window.addEventListener('cameraXResult', handleCameraXResult)
+
+  // Setup global bridge untuk Android
+  if (!(window as any)._cameraXBridgeReady) {
+    ;(window as any).onCameraXResult = (result: any) => {
+      window.dispatchEvent(new CustomEvent('cameraXResult', { detail: result }))
+    }
+    ;(window as any)._cameraXBridgeReady = true
+  }
 })
 
 onUnmounted(() => {
   if (cleanupListener) cleanupListener()
+  window.removeEventListener('cameraXResult', handleCameraXResult)
   unlockBodyScroll()
 })
 
@@ -380,14 +451,35 @@ const previewMode          = ref<'new' | 'view'>('new')
 // ── FAB kamera ───────────────────────────────────────────────
 const handleFabCamera = () => {
   const source = localCameraSource.value
-  if      (source === 'camera')  openFileInput('camera')
+  if      (source === 'camera')  openCamera()
   else if (source === 'gallery') openFileInput('gallery')
   else    showSourceModal.value = true
 }
 
 const handleSourceSelect = (type: string) => {
   showSourceModal.value = false
-  if (type === 'camera' || type === 'gallery') openFileInput(type)
+  if (type === 'camera') openCamera()
+  else if (type === 'gallery') openFileInput('gallery')
+}
+
+// ── Open Camera (CameraX untuk native, input file untuk browser) ──
+const openCamera = () => {
+  // Native Android → pakai CameraX
+  if (isNative) {
+    if ((window as any).Android?.openCameraX) {
+      // Untuk foto bebas, kita tidak punya itemId, kirim string kosong atau 'temp'
+      const itemId = 'temp_gallery'
+      const itemName = 'Foto Bebas'
+      const aspectRatio = 'flexible'; // Default aspect ratio
+      (window as any).Android.openCameraX(itemId, itemName, aspectRatio)
+    } else {
+      console.error("Android plugin not available")
+    }
+    return
+  }
+
+  // Browser / bukan native → pakai input file dengan capture
+  openFileInput('camera')
 }
 
 const openFileInput = (type: 'camera' | 'gallery') => {
@@ -413,6 +505,10 @@ const handleFileSelect = (e: Event) => {
   input.value = ''
   if (!files.length) return
 
+  processFiles(files)
+}
+
+const processFiles = (files: File[]) => {
   const newItems = files.map(file => ({
     file,
     url:      URL.createObjectURL(file),
@@ -443,26 +539,60 @@ const handleFileSelect = (e: Event) => {
 // ── Tombol + di dalam ImagePreviewModal ──────────────────────
 const handlePreviewAddMore = () => {
   const source = localCameraSource.value
-  if      (source === 'camera')  openFileInput('camera')
+  if      (source === 'camera')  openCamera()
   else if (source === 'gallery') openFileInput('gallery')
   else    showSourceModal.value = true
 }
 
+
 // ── Simpan dari ImagePreviewModal ────────────────────────────
-const handlePreviewSave = (savedImages: any[]) => {
+const handlePreviewSave = (savedData: any) => {
   showPreviewModal.value = false
+  
+  // Versi baru: savedData bisa berupa array (langsung) atau object { images, optionValue }
+  let savedImages = savedData
+    
+  // Check jika savedData adalah object dengan property images (format baru)
+  if (savedData && typeof savedData === 'object' && 'images' in savedData) {
+    savedImages = savedData.images
+    // Option value tidak digunakan di UnassignedGalleryModal
+    // Gunakan underscore prefix untuk menandakan tidak digunakan
+    const _savedOptionValue = savedData.optionValue
+    // Atau bisa juga di-log untuk debugging jika diperlukan
+    if (_savedOptionValue) {
+      console.debug('Option value ignored in UnassignedGalleryModal:', _savedOptionValue)
+    }
+  }
+  
+  // Filter gambar baru (_isNew true)
   const newImages = savedImages.filter((img: any) => img._isNew && img.file)
+  
+  // Revoke blob URLs untuk gambar yang tidak disimpan (seharusnya tidak ada karena kita simpan semua)
+  // Tapi untuk amannya, revoke yang tidak digunakan
   pendingPreviewImages.value.forEach((img: any) => {
-    if (img._isNew && img.url?.startsWith('blob:')) URL.revokeObjectURL(img.url)
+    if (img._isNew && img.url?.startsWith('blob:')) {
+      // Hanya revoke jika gambar ini tidak ada di newImages
+      const isKept = newImages.some((kept: any) => kept.file === img.file)
+      if (!isKept) {
+        URL.revokeObjectURL(img.url)
+      }
+    }
   })
+  
   pendingPreviewImages.value = []
+  
   if (!newImages.length) return
+  
+  // Tambahkan ke store
   store.addImages({
     files:        newImages.map((img: any) => img.file),
     rotations:    newImages.map((img: any) => ((img.rotation || 0) % 360 + 360) % 360),
     inspectionId: props.inspectionId,
   })
+  
+  // Note: savedOptionValue diabaikan karena UnassignedGalleryModal tidak punya option
 }
+
 
 // ── Tutup ImagePreviewModal ───────────────────────────────────
 const handlePreviewClose = () => {
@@ -479,6 +609,8 @@ const handlePreviewClose = () => {
 const openPreviewAt = (img: TempImage) => {
   const doneImages = allImages.value.filter(i => i.status === 'done')
   const startIdx   = doneImages.findIndex(i => i.localId === img.localId)
+  
+  // Format yang benar untuk preview mode view
   pendingPreviewImages.value = doneImages.map(i => ({
     localId:  i.localId,
     url:      i.imageUrl ?? i.url,
@@ -488,8 +620,10 @@ const openPreviewAt = (img: TempImage) => {
     caption:  i.caption,
     status:   i.status,
     rotation: 0,
-    _isNew:   false,
+    _isNew:   false,  // Penting: ini bukan gambar baru
+    file:     undefined, // Tidak ada file karena sudah di server
   }))
+  
   previewStartIndex.value = startIdx >= 0 ? startIdx : 0
   previewMode.value       = 'view'
   nextTick(() => { showPreviewModal.value = true })

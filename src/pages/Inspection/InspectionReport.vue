@@ -19,7 +19,7 @@
       <div class="info-banner">
         <div class="info-banner-icon">👁️</div>
         <div class="info-banner-text">
-          <strong>Preview Laporan PDF</strong>
+          <strong>Preview Laporan PDF {{reportType}}</strong>
           <span>Halaman ini adalah gambaran tampilan PDF yang akan dibuat. Periksa semua data, tambah estimasi jika diperlukan, lalu tekan <em>Generate PDF</em> di bagian bawah.</span>
         </div>
       </div>
@@ -355,21 +355,57 @@
       <div v-if="isUnderReview" class="generate-wrap" ref="generateRef">
         <div class="generate-info">
           <span>✅</span>
-          <span>Sudah yakin semua data benar? Tekan tombol di bawah untuk membuat PDF.</span>
-        </div>
-        <button class="btn-generate" :disabled="generating" :class="{ 'is-loading': generating }" @click="generatePdf">
-          <span v-if="!generating" class="btn-generate-inner">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14,2 14,8 20,8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
-            Generate PDF
+          <span v-if="reportType === 'pdf'">
+            Sudah yakin semua data benar? Tekan tombol di bawah untuk membuat PDF.
           </span>
+
+          <span v-else>
+            Sudah yakin semua data benar? Tekan tombol di bawah untuk kirim laporan via pesan WhatsApp.
+          </span>
+        </div>
+        <button
+            class="btn-generate"
+            :class="[
+              reportType === 'message'
+                ? 'btn-generate-whatsapp'
+                : 'btn-generate-pdf',
+
+              { 'is-loading': generating }
+            ]"
+            :disabled="generating"
+            @click="handleAction(reportType === 'message' ? 'message' : 'pdf')"
+          >
+          <span v-if="!generating" class="btn-generate-inner">
+
+            <!-- PDF -->
+            <template v-if="reportType === 'pdf'">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14,2 14,8 20,8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+
+              Generate PDF
+            </template>
+
+            <!-- WHATSAPP -->
+            <template v-else>
+              <svg width="17" height="17" viewBox="0 0 32 32" fill="currentColor">
+                <path d="M16.001 3C8.82 3 3 8.82 3 16c0 2.822.902 5.438 2.438 7.57L3 29l5.61-2.363A12.94 12.94 0 0 0 16 29c7.18 0 13-5.82 13-13S23.18 3 16 3zm0 23.4a10.34 10.34 0 0 1-5.274-1.45l-.377-.223-3.328 1.402 1.415-3.24-.245-.39A10.32 10.32 0 0 1 5.6 16C5.6 10.256 10.257 5.6 16 5.6S26.4 10.256 26.4 16 21.744 26.4 16 26.4zm5.692-7.79c-.312-.156-1.848-.91-2.135-1.014-.286-.104-.494-.156-.702.156s-.806 1.014-.988 1.223c-.182.208-.364.234-.676.078-.312-.156-1.317-.485-2.51-1.547-.928-.828-1.555-1.85-1.737-2.162-.182-.312-.02-.48.137-.636.142-.141.312-.364.468-.546.156-.182.208-.312.312-.52.104-.208.052-.39-.026-.546-.078-.156-.702-1.69-.962-2.318-.253-.608-.51-.526-.702-.536l-.598-.01c-.208 0-.546.078-.832.39-.286.312-1.092 1.066-1.092 2.6 0 1.534 1.118 3.016 1.274 3.224.156.208 2.2 3.36 5.332 4.71.745.322 1.326.514 1.78.658.748.238 1.428.204 1.965.124.6-.09 1.848-.754 2.11-1.482.26-.728.26-1.352.182-1.482-.078-.13-.286-.208-.598-.364z"/>
+              </svg>
+
+              Kirim Via WhatsApp
+            </template>
+
+          </span>
+
           <span v-else class="btn-generate-inner">
             <span class="btn-spinner"></span>
-            Membuat PDF...
+
+            {{ reportType === 'pdf'
+              ? 'Membuat PDF...'
+              : 'Menyiapkan WhatsApp...' }}
           </span>
         </button>
       </div>
@@ -390,6 +426,16 @@
       :edit-data="estEditData"
       @saved="onEstimasiSaved"
       @updated="onEstimasiUpdated"
+    />
+
+    <PaymentModal
+      :open="paymentModalOpen"
+      :payment-exists="paymentExists"
+      :total-amount="totalAmount"
+      :remaining-payment="remainingPayment"
+      :notes="report?.payment?.notes ?? ''"
+      @close="paymentModalOpen = false"
+      @submit="onPaymentSubmit"
     />
 
     <!-- FLOATING SCROLL FABs -->
@@ -422,8 +468,10 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ImagePreviewModal from '../../components/Report/ImagePreviewModal.vue'
 import EstimasiModal     from '../../components/Report/EstimasiModal.vue' 
+import PaymentModal from '../../components/Report/PaymentModal.vue'
 import {
   getDataReport,
+  PostSendWhatsapp,
   PostGeneratePDF,
   storeEstimasi,
   updateEstimasi,
@@ -431,7 +479,7 @@ import {
 } from '../../services/inspectionReportService'
 import type {
   ReportData, Section, ImageRow, ResultRow,
-  NotedRow, NotedImage, ModalState, ModalImageItem,EstimasiItem,
+  NotedRow, NotedImage, ModalState, ModalImageItem,EstimasiItem,PaymentPayload,
 } from '../../types/inspectionReport'
 
 // ─── State ────────────────────────────────────────────────
@@ -455,6 +503,15 @@ const estModalOpen     = ref(false)
 const estPrefillName   = ref<string>('')
 const estEditData      = ref<EstimasiItem | null>(null)
 let _tempId = 0
+
+// ─── Payment state ─────────────────────────────────────
+const paymentModalOpen = ref(false)
+const pendingAction         = ref<'pdf' | 'message' | null>(null)
+
+const paymentExists    = computed(() => report.value?.payment_exists    ?? false)
+const paymentIsPaid    = computed(() => report.value?.payment_is_paid   ?? false)
+const remainingPayment = computed(() => report.value?.remaining_payment ?? 0)
+const totalAmount      = computed(() => report.value?.payment?.total_amount ?? 0)
 
 // Buka modal tambah (dari noted / dari tabel)
 function openEstModal(prefillName?: string) {
@@ -555,6 +612,7 @@ const hdr        = computed(() => cfg.value?.header ?? {})
 const cont       = computed(() => cfg.value?.content ?? {})
 const vData      = computed(() => cont.value?.vehicle_data ?? {})
 const conclusion = computed(() => report.value?.conclusion ?? {})
+const reportType = computed(() => report.value?.report_template?.type ?? 'pdf')
 
 const totalEstimasi = computed(() =>
   localEstimations.value.reduce((sum, e) => sum + Number(e.estimated_cost ?? 0), 0)
@@ -649,32 +707,70 @@ function statusBadgeStyle(s:string) {
 
 // ─── Fetch & Generate ─────────────────────────────────────
 async function fetchReport() {
-  loading.value=true; error.value=null
+  loading.value = true; error.value = null
   try {
     const id  = Number(route.params.id)
     const res = await getDataReport(id)
     const body = res.data ?? res
-    report.value = body?.data ?? body
+
+    // Gabungkan data + field payment dari root response
+    report.value = {
+      ...(body?.data ?? body),
+      payment:          body?.payment          ?? null,
+      payment_exists:   body?.payment_exists   ?? false,
+      payment_is_paid:  body?.payment_is_paid  ?? false,
+      remaining_payment: body?.remaining_payment ?? 0,
+      can_approve:      body?.can_approve       ?? false,
+    }
+
     localEstimations.value = [...(report.value?.estimations ?? [])]
-  } catch(e:any) { error.value=e?.response?.data?.message??'Gagal memuat laporan' }
-  finally { loading.value=false }
+  } catch(e: any) {
+    error.value = e?.response?.data?.message ?? 'Gagal memuat laporan'
+  } finally {
+    loading.value = false
+  }
 }
 
 const router = useRouter()
 
-async function generatePdf() {
+
+// ─── Action handler ─────────────────────────────────────
+
+function handleAction(action: 'pdf' | 'message') {
+  pendingAction.value = action
+
+  if (paymentIsPaid.value) {
+    executeAction(action, {})   // sudah lunas → langsung
+    return
+  }
+
+  paymentModalOpen.value = true // belum ada atau belum lunas → modal
+}
+
+function onPaymentSubmit(payload: PaymentPayload) {
+  paymentModalOpen.value = false
+  executeAction(pendingAction.value!, payload)
+}
+
+async function executeAction(action: 'pdf' | 'message', payload: PaymentPayload | Record<string, never>) {
   generating.value = true
   try {
-    const id  = Number(route.params.id)
-    const res = await PostGeneratePDF(id)
-    if (res.data?.success) {
-      // Redirect ke job detail setelah generate berhasil
-      router.push(`/jobs/${id}`)  // ← sesuaikan nama field uuid
-    } else {
-      alert(res.data?.message ?? 'Gagal generate PDF')
+    const id = Number(route.params.id)
+
+    if (action === 'pdf') {
+      const res = await PostGeneratePDF(id, payload)
+      if (!res.data?.success) { alert(res.data?.message ?? 'Gagal generate PDF'); return }
     }
-  } catch(e: any) {
-    alert(e?.response?.data?.message ?? 'Gagal generate PDF')
+
+    if (action === 'message') {
+      const res = await PostSendWhatsapp(id, payload)
+      if (!res.data?.success) { alert(res.data?.message ?? 'Gagal kirim WhatsApp'); return }
+    }
+
+    router.push(`/send-whatsapp/${id}`)
+
+  } catch (e: any) {
+    alert(e?.response?.data?.message ?? 'Terjadi kesalahan')
   } finally {
     generating.value = false
   }
@@ -900,6 +996,27 @@ onUnmounted(() => { window.removeEventListener('scroll', onScroll); if(scrollTim
   transition:opacity .2s,transform .15s,box-shadow .2s;
   position:relative; overflow:hidden;
 }
+
+/* PDF */
+.btn-generate-pdf {
+  background: linear-gradient(135deg,#e53e3e 0%,#c53030 100%);
+  box-shadow: 0 2px 14px rgba(229,62,62,.38);
+}
+
+.btn-generate-pdf:not(:disabled):active {
+  box-shadow: 0 2px 8px rgba(229,62,62,.3);
+}
+
+/* WhatsApp */
+.btn-generate-whatsapp {
+  background: linear-gradient(135deg,#25D366 0%,#128C7E 100%);
+  box-shadow: 0 2px 14px rgba(37,211,102,.38);
+}
+
+.btn-generate-whatsapp:not(:disabled):active {
+  box-shadow: 0 2px 8px rgba(37,211,102,.3);
+}
+
 .btn-generate::after {
   content:''; position:absolute; inset:0;
   background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.18) 50%,transparent 70%);
@@ -908,7 +1025,34 @@ onUnmounted(() => { window.removeEventListener('scroll', onScroll); if(scrollTim
 .btn-generate:not(:disabled):active { transform:scale(.97); box-shadow:0 2px 8px rgba(229,62,62,.3); }
 .btn-generate:not(:disabled):hover::after { transform:translateX(100%); }
 .btn-generate:disabled { opacity:.6; cursor:not-allowed; box-shadow:none; }
-.btn-generate.is-loading { animation:pulseShadow 1.4s ease-in-out infinite; }
+
+.btn-generate-pdf.is-loading {
+  animation:pulseShadowPdf 1.4s ease-in-out infinite;
+}
+
+.btn-generate-whatsapp.is-loading {
+  animation:pulseShadowWhatsapp 1.4s ease-in-out infinite;
+}
+
+@keyframes pulseShadowPdf {
+  0%,100% {
+    box-shadow:0 4px 16px rgba(229,62,62,.38)
+  }
+  50% {
+    box-shadow:0 4px 26px rgba(229,62,62,.6)
+  }
+}
+
+@keyframes pulseShadowWhatsapp {
+  0%,100% {
+    box-shadow:0 4px 16px rgba(37,211,102,.38)
+  }
+  50% {
+    box-shadow:0 4px 26px rgba(37,211,102,.6)
+  }
+}
+
+
 @keyframes pulseShadow { 0%,100%{box-shadow:0 4px 16px rgba(229,62,62,.38)} 50%{box-shadow:0 4px 26px rgba(229,62,62,.6)} }
 .btn-generate-inner { display:flex; align-items:center; justify-content:center; gap:8px; }
 .btn-spinner { width:15px; height:15px; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:spin .65s linear infinite; flex-shrink:0; }

@@ -2,10 +2,20 @@
 // ─────────────────────────────────────────────────────────────
 // Global Pinia store untuk manajemen upload gambar inspeksi.
 // Menangani: pending → uploading → done / failed, lintas section.
+//
+// [FIX] v2:
+//  1. syncFromServer  → filter existingServerIds by inspectionId juga,
+//                       agar tidak skip gambar server dengan ID sama
+//                       tapi dari inspeksi berbeda.
+//  2. clearInspection → sudah ada, pastikan dipanggil di komponen
+//                       via onBeforeRouteLeave / onBeforeUnmount.
+//  3. getImagesByItem → getter baru, filter by inspectionId + itemId
+//                       agar tidak bocor lintas inspeksi.
+//  4. hasAnyActiveInspection → helper debug untuk cek kebocoran state.
 // ─────────────────────────────────────────────────────────────
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { uploadInspectionImages, deleteInspectionImage } from '../services/formInspectionService'
 
 // ─────────────────────────────────────────────────────────────
@@ -131,29 +141,66 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
 
   // ── Getters ────────────────────────────────────────────────
 
-  /** Ambil semua gambar milik section tertentu */
-  const getImagesBySection = (sectionId: number): InspectionImage[] =>
-    images.value.filter(img => img.sectionId === sectionId)
+  /**
+   * Ambil semua gambar milik section tertentu,
+   * [FIX] wajib sertakan inspectionId agar tidak bocor lintas inspeksi.
+   *
+   * Contoh penggunaan di komponen:
+   *   const imgs = imageStore.getImagesBySection(sectionId, props.inspectionId)
+   */
+  const getImagesBySection = (sectionId: number, inspectionId: number): InspectionImage[] =>
+    images.value.filter(
+      img => img.sectionId === sectionId && img.inspectionId === inspectionId
+    )
+
+  /**
+   * [FIX - BARU] Getter yang filter by inspectionId + itemId.
+   * Gunakan ini jika komponen butuh gambar per item tanpa tahu sectionId.
+   */
+  const getImagesByItem = (itemId: number, inspectionId: number): InspectionImage[] =>
+    images.value.filter(
+      img => img.itemId === itemId && img.inspectionId === inspectionId
+    )
 
   /** Ambil gambar berdasarkan localId */
   const getImageByLocalId = (localId: string): InspectionImage | undefined =>
     images.value.find(img => img.localId === localId)
 
-  /** Apakah ada gambar yang masih dalam proses upload di section tertentu */
-  const hasPendingUploads = (sectionId: number): boolean =>
+  /**
+   * Apakah ada gambar yang masih dalam proses upload di section tertentu.
+   * [FIX] Tambah inspectionId agar tidak false-positive dari inspeksi lain.
+   */
+  const hasPendingUploads = (sectionId: number, inspectionId: number): boolean =>
     images.value.some(
       img => img.sectionId === sectionId &&
+             img.inspectionId === inspectionId &&
              (img.status === 'pending' || img.status === 'uploading')
     )
 
-  /** Apakah ada upload yang gagal di section tertentu */
-  const hasFailedUploads = (sectionId: number): boolean =>
-    images.value.some(img => img.sectionId === sectionId && img.status === 'failed')
+  /**
+   * Apakah ada upload yang gagal di section tertentu.
+   * [FIX] Tambah inspectionId agar tidak false-positive dari inspeksi lain.
+   */
+  const hasFailedUploads = (sectionId: number, inspectionId: number): boolean =>
+    images.value.some(
+      img => img.sectionId === sectionId &&
+             img.inspectionId === inspectionId &&
+             img.status === 'failed'
+    )
 
   /** Jumlah gambar pending/uploading secara global */
   const totalPendingCount = computed(() =>
     images.value.filter(img => img.status === 'pending' || img.status === 'uploading').length
   )
+
+  /**
+   * [FIX - BARU] Helper debug: cek apakah ada gambar dari inspeksi tertentu
+   * yang masih tersisa di store. Berguna untuk deteksi kebocoran state.
+   *
+   * Contoh: console.log(imageStore.hasAnyActiveInspection(13))
+   */
+  const hasAnyActiveInspection = (inspectionId: number): boolean =>
+    images.value.some(img => img.inspectionId === inspectionId)
 
   // ── Actions ────────────────────────────────────────────────
 
@@ -162,13 +209,13 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
    * Dipanggil SETELAH user klik "Simpan & Upload" di preview modal,
    * sehingga rotation sudah ditentukan user.
    *
-   * @param files         Array File yang dipilih user
-   * @param rotations     Array rotasi per-file (indeks sesuai files). Default semua 0.
-   * @param sectionId     ID item form (unik per image input)
-   * @param itemId        ID form item
-   * @param inspectionItemId  ID inspection item
-   * @param inspectionId  ID inspeksi aktif
-   * @param selectedOptionValue  Nilai opsi radio terpilih (opsional)
+   * @param files               Array File yang dipilih user
+   * @param rotations           Array rotasi per-file (indeks sesuai files). Default semua 0.
+   * @param sectionId           ID item form (unik per image input)
+   * @param itemId              ID form item
+   * @param inspectionItemId    ID inspection item
+   * @param inspectionId        ID inspeksi aktif
+   * @param selectedOptionValue Nilai opsi radio terpilih (opsional)
    * @returns Array localId gambar yang ditambahkan
    */
   const addImages = (params: {
@@ -190,7 +237,6 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
     files.forEach((file, i) => {
       const localId  = generateLocalId()
       const rotation = rotations[i] ?? 0
-      // Buat blob URL dari file asli untuk preview thumbnail (sebelum upload)
       const blobUrl  = URL.createObjectURL(file)
 
       images.value.push({
@@ -202,7 +248,7 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
         itemId,
         inspectionItemId,
         inspectionId,
-        rotation,          // disimpan, akan di-apply canvas saat upload
+        rotation,
         status: 'pending',
         selectedOptionValue,
         addedAt: Date.now(),
@@ -211,7 +257,6 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
       localIds.push(localId)
     })
 
-    // Langsung trigger background upload
     _processQueue()
 
     return localIds
@@ -236,18 +281,15 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
     if (idx === -1) return
 
     const img = images.value[idx]
-    if (!img) return   // guard — seharusnya tidak terjadi tapi TS perlu ini
+    if (!img) return
 
-    // Simpan data yang diperlukan sebelum splice
     const blobUrl  = img.url
     const serverId = img.serverId
 
     images.value.splice(idx, 1)
 
-    // Revoke blob URL jika ada
     if (blobUrl?.startsWith('blob:')) URL.revokeObjectURL(blobUrl)
 
-    // Hapus dari server di background
     if (serverId) {
       deleteInspectionImage(serverId).catch(err =>
         console.warn('[ImageUploadStore] Background delete gagal:', serverId, err)
@@ -271,7 +313,15 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
   /**
    * Sinkronisasi gambar yang sudah ada di server (dari API GET inspeksi).
    * Gambar dari server langsung masuk dengan status 'done'.
-   * Tidak menambah duplikat (cek berdasarkan serverId).
+   *
+   * [FIX] existingServerIds sekarang di-filter by inspectionId juga,
+   * agar gambar dengan serverId yang sama dari inspeksi BERBEDA
+   * tidak di-skip secara salah.
+   *
+   * Contoh kasus sebelum fix:
+   *   - Inspeksi 13 punya gambar serverId: 100
+   *   - Pindah ke inspeksi 14, serverId: 100 di-skip karena dianggap duplikat
+   *   - Padahal itu gambar berbeda, hanya kebetulan ID-nya sama
    */
   const syncFromServer = (params: {
     serverImages: Array<{ id: number; image_url: string; caption?: string | null }>
@@ -281,8 +331,12 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
     inspectionId: number
   }): void => {
     const { serverImages, sectionId, itemId, inspectionItemId, inspectionId } = params
+
+    // [FIX] Filter existingServerIds hanya dalam scope inspectionId yang sama
     const existingServerIds = new Set(
-      images.value.filter(i => i.serverId !== null).map(i => i.serverId)
+      images.value
+        .filter(i => i.serverId !== null && i.inspectionId === inspectionId)
+        .map(i => i.serverId)
     )
 
     for (const serverImg of serverImages) {
@@ -308,35 +362,64 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
   /**
    * Bersihkan gambar milik satu inspeksi (saat user keluar form).
    * Revoke semua blob URL untuk mencegah memory leak.
+   *
+   * [PENTING] Panggil ini di komponen halaman form inspeksi:
+   *
+   * Opsi 1 — Vue Router (lebih direkomendasikan):
+   * ```ts
+   * import { onBeforeRouteLeave } from 'vue-router'
+   * const imageStore = useImageUploadStore()
+   *
+   * onBeforeRouteLeave(() => {
+   *   imageStore.clearInspection(props.inspectionId)
+   * })
+   * ```
+   *
+   * Opsi 2 — Lifecycle hook:
+   * ```ts
+   * import { onBeforeUnmount } from 'vue'
+   *
+   * onBeforeUnmount(() => {
+   *   imageStore.clearInspection(props.inspectionId)
+   * })
+   * ```
    */
+    const isClearing = ref(false)
+
   const clearInspection = (inspectionId: number): void => {
+    isClearing.value = true  // ← tandai sedang clearing
+    
     const toRemove = images.value.filter(img => img.inspectionId === inspectionId)
     for (const img of toRemove) {
       if (img.url?.startsWith('blob:')) URL.revokeObjectURL(img.url)
+      activeUploads.value.delete(img.localId)
     }
     images.value = images.value.filter(img => img.inspectionId !== inspectionId)
+
+    // Reset flag setelah microtask selesai
+    nextTick(() => { isClearing.value = false })
+        console.log(`[ImageUploadStore] clearInspection(${inspectionId}) — ${toRemove.length} gambar dibersihkan`)
   }
 
   /**
    * Bersihkan semua gambar milik satu item form (sectionId = item.id).
    * Dipanggil saat user menghapus seluruh data item dari InspectionSection.
-   * Revoke blob URL + batalkan upload yang sedang berjalan (diabaikan setelah selesai).
+   * Revoke blob URL + batalkan upload yang sedang berjalan.
    */
   const clearSection = (sectionId: number): void => {
     const toRemove = images.value.filter(img => img.sectionId === sectionId)
+
     for (const img of toRemove) {
-      // Revoke blob URL jika ada
       if (img.url?.startsWith('blob:')) URL.revokeObjectURL(img.url)
-      // Batalkan dari activeUploads — _uploadSingle akan abaikan jika tidak ada di images
       activeUploads.value.delete(img.localId)
     }
+
     images.value = images.value.filter(img => img.sectionId !== sectionId)
   }
 
   // ── Internal: upload queue processor ──────────────────────
 
   /**
-   * _processQueue
    * Scan semua gambar dengan status 'pending' dan upload secara paralel.
    * Setiap gambar di-lock via `activeUploads` agar tidak diproses dua kali.
    */
@@ -354,14 +437,12 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
     const img = images.value.find(i => i.localId === localId)
     if (!img || !img.file) return
 
-    // Lock
     activeUploads.value.add(localId)
     img.status = 'uploading'
 
     try {
       let fileToUpload = img.file
 
-      // Apply rotation via canvas jika ada
       const rot = ((img.rotation || 0) % 360 + 360) % 360
       if (rot !== 0) {
         fileToUpload = await rotateFileByCanvas(img.file, rot)
@@ -378,16 +459,10 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
       const uploaded = result?.data?.[0] ?? result?.[0]
       if (!uploaded?.id) throw new Error('Response server tidak mengandung data gambar')
 
-      // Sukses → update state
       const current = images.value.find(i => i.localId === localId)
       if (!current) return // dihapus saat upload berlangsung, abaikan
 
-      // Revoke blob lama
       if (current.url?.startsWith('blob:')) URL.revokeObjectURL(current.url)
-      // Revoke rotated blob jika ada dan berbeda
-      if (rot !== 0 && fileToUpload !== img.file) {
-        // fileToUpload adalah file baru dari canvas, sudah tidak dibutuhkan
-      }
 
       current.serverId  = uploaded.id
       current.imageUrl  = uploaded.image_url
@@ -395,7 +470,7 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
       current.caption   = uploaded.caption ?? null
       current.status    = 'done'
       current.rotation  = 0
-      current.file      = undefined   // bebaskan memori
+      current.file      = undefined // bebaskan memori
 
     } catch (err: any) {
       console.error('[ImageUploadStore] Upload gagal:', localId, err)
@@ -411,26 +486,29 @@ export const useImageUploadStore = defineStore('imageUpload', () => {
     }
   }
 
+
   // ── Return public API ─────────────────────────────────────
 
   return {
-    // State (read-only dari luar lewat getters)
+    // State
     images,
-
+    isClearing,
     // Getters
-    getImagesBySection,
+    getImagesBySection,       // [FIX] sekarang butuh inspectionId sebagai arg ke-2
+    getImagesByItem,          // [BARU] filter by itemId + inspectionId
     getImageByLocalId,
-    hasPendingUploads,
-    hasFailedUploads,
+    hasPendingUploads,        // [FIX] sekarang butuh inspectionId sebagai arg ke-2
+    hasFailedUploads,         // [FIX] sekarang butuh inspectionId sebagai arg ke-2
     totalPendingCount,
+    hasAnyActiveInspection,   // [BARU] helper debug
 
     // Actions
     addImages,
     updateRotation,
     removeImage,
     retryUpload,
-    syncFromServer,
-    clearInspection,
+    syncFromServer,           // [FIX] existingServerIds filter by inspectionId
+    clearInspection,          // [PENTING] panggil ini di onBeforeRouteLeave
     clearSection,
   }
 })

@@ -3,18 +3,54 @@
     <Transition name="modal-fade">
       <div v-if="modelValue.open" class="modal-overlay" @click.self="close">
 
-        <!-- ─── TOP BAR (sederhana dengan nama item) ─── -->
+        <!-- ─── TOP BAR ─── -->
         <div class="modal-topbar">
           <div class="modal-top-left">
             <div class="modal-item-name">{{ currentItem?.itemName ?? '' }}</div>
             <div v-if="total > 1" class="modal-counter">{{ currentIndex + 1 }} / {{ total }}</div>
+          </div>
+          <div class="modal-actions">
+            <button class="action-btn" title="Rotate Kiri" @click="rotate(-90)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M2.5 2v6h6M2.66 15.57a10 10 0 1 0 .57-8.38"/>
+              </svg>
+            </button>
+            <button class="action-btn" title="Rotate Kanan" @click="rotate(90)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/>
+              </svg>
+            </button>
+            <button class="action-btn" title="Zoom Out" @click="zoomBy(-0.25)" :disabled="scale <= 0.5">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35M8 11h6"/>
+              </svg>
+            </button>
+            <button class="action-btn zoom-label" @click="resetTransform">{{ Math.round(scale * 100) }}%</button>
+            <button class="action-btn" title="Zoom In" @click="zoomBy(0.25)" :disabled="scale >= 5">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/>
+              </svg>
+            </button>
+           
           </div>
         </div>
 
         <!-- ─── MAIN AREA ─── -->
         <div class="modal-main">
 
-          <!-- Image Area dengan tombol overlay -->
+          <!-- Nav Kiri -->
+          <button
+            v-if="total > 1"
+            class="nav-btn nav-prev"
+            :disabled="currentIndex === 0"
+            @click.stop="navigate(-1)"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+          </button>
+
+          <!-- Image Area -->
           <div
             class="modal-image-area"
             ref="imageAreaRef"
@@ -39,55 +75,19 @@
                 draggable="false"
               >
             </Transition>
-
-            <!-- Floating Navigation Buttons (di dalam area gambar) -->
-            <button
-              v-if="total > 1 && currentIndex > 0"
-              class="floating-nav floating-nav-prev"
-              @click.stop="navigate(-1)"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <path d="M15 18l-6-6 6-6"/>
-              </svg>
-            </button>
-
-            <button
-              v-if="total > 1 && currentIndex < total - 1"
-              class="floating-nav floating-nav-next"
-              @click.stop="navigate(1)"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <path d="M9 18l6-6-6-6"/>
-              </svg>
-            </button>
-
-            <!-- Floating Controls (rotate, zoom) di dalam gambar -->
-            <div class="floating-controls">
-              <button class="floating-control-btn" title="Rotate Kiri" @click.stop="rotate(-90)">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M2.5 2v6h6M2.66 15.57a10 10 0 1 0 .57-8.38"/>
-                </svg>
-              </button>
-              <button class="floating-control-btn" title="Rotate Kanan" @click.stop="rotate(90)">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/>
-                </svg>
-              </button>
-              <button class="floating-control-btn" title="Zoom Out" @click.stop="zoomBy(-0.25)" :disabled="scale <= 0.5">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35M8 11h6"/>
-                </svg>
-              </button>
-              <button class="floating-control-btn zoom-label" @click.stop="resetTransform">
-                {{ Math.round(scale * 100) }}%
-              </button>
-              <button class="floating-control-btn" title="Zoom In" @click.stop="zoomBy(0.25)" :disabled="scale >= 5">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/>
-                </svg>
-              </button>
-            </div>
           </div>
+
+          <!-- Nav Kanan -->
+          <button
+            v-if="total > 1"
+            class="nav-btn nav-next"
+            :disabled="currentIndex === total - 1"
+            @click.stop="navigate(1)"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+          </button>
 
         </div>
 
@@ -97,7 +97,7 @@
           <!-- Tombol Tambah Estimasi — muncul kalau status bukan ok/normal/baik/good -->
           <Transition name="est-btn-fade">
             <button
-              v-if="shouldShowEstBtn && isUnderReview"
+              v-if="shouldShowEstBtn && isUnderReview "
               class="btn-add-est-modal"
               @click="emitAddEstimasi"
             >
@@ -110,7 +110,7 @@
 
           <!-- Status -->
           <div v-if="parsedStatuses.length" class="modal-status-row">
-            <!-- <span class="info-label">Status:</span> -->
+            <span class="info-label">Status:</span>
             <span v-for="(s, i) in parsedStatuses" :key="i">
               <span :style="{ color: statusColor(s) }" class="status-chip">{{ s }}</span>
               <span v-if="i < parsedStatuses.length - 1" class="sep">, </span>
@@ -127,7 +127,7 @@
 
           <!-- Note -->
           <div v-if="currentItem?.note" class="modal-note">
-            <!-- <span class="info-label">📝 Catatan:</span> -->
+            <span class="info-label">📝 Catatan:</span>
             {{ currentItem.note }}
           </div>
 
@@ -152,14 +152,14 @@
           </div>
         </div>
 
-        <!-- Tombol Kembali di bagian bawah -->
-        <button class="btn-back-modal" @click="close">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-          Kembali
-        </button>
-
+         <!-- Tombol Kembali di bagian bawah -->
+          <button class="btn-back-modal" @click="close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Kembali
+          </button>
+          
       </div>
     </Transition>
   </Teleport>
@@ -222,6 +222,7 @@ const parsedStatuses = computed<string[]>(() => {
   return [t]
 })
 
+// Tampilkan tombol estimasi kalau ada status bukan ok/normal/baik/good
 const okStatuses = ['ok', 'normal', 'baik', 'good', 'ada']
 const shouldShowEstBtn = computed<boolean>(() => {
   if (!parsedStatuses.value.length) return false
@@ -362,266 +363,144 @@ function statusColor(s: string) {
 
 .modal-topbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px;
-  background: rgba(0,0,0,0.5);
-  backdrop-filter: blur(8px);
-  flex-shrink: 0;
-  z-index: 10;
+  padding: 9px 12px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0; gap: 10px;
 }
-.modal-top-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+.modal-top-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
 .modal-item-name { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.modal-counter { font-size: 11px; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.12); padding: 4px 10px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
-
-.modal-main { 
-  flex: 1; 
-  display: flex; 
-  align-items: center; 
-  min-height: 0; 
-  position: relative;
-  background: #000;
+.modal-counter { font-size: 11px; color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.07); padding: 2px 7px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+.modal-actions { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.action-btn {
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+  color: #fff; border-radius: 6px; width: 34px; height: 34px;
+  cursor: pointer; transition: background 0.15s;
+  font-size: 11px; font-weight: 600; flex-shrink: 0;
 }
+.action-btn:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
+.action-btn:disabled { opacity: 0.28; cursor: not-allowed; }
+.zoom-label { min-width: 46px; width: auto; padding: 0 6px; font-size: 11px; }
+.close-btn { background: rgba(220,53,69,0.15); border-color: rgba(220,53,69,0.3); margin-left: 4px; }
+.close-btn:hover { background: rgba(220,53,69,0.42) !important; }
+
+.modal-main { flex: 1; display: flex; align-items: center; min-height: 0; position: relative; }
+
+.nav-btn {
+  flex-shrink: 0; width: 46px; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none;
+  color: rgba(255,255,255,0.6); cursor: pointer;
+  transition: background 0.15s, color 0.15s; z-index: 2;
+}
+.nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.06); color: #fff; }
+.nav-btn:disabled { opacity: 0.15; cursor: not-allowed; }
 
 .modal-image-area {
-  flex: 1; 
-  display: flex; 
-  align-items: center; 
-  justify-content: center;
-  overflow: hidden; 
-  position: relative; 
-  height: 100%;
-  width: 100%;
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; position: relative; height: 100%;
 }
 .modal-img {
-  max-width: 100%; 
-  max-height: 100%;
-  object-fit: contain; 
-  display: block;
-  will-change: transform; 
-  border-radius: 2px;
-}
-
-/* Floating Navigation Buttons */
-.floating-nav {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 44px;
-  height: 44px;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  z-index: 20;
-  color: white;
-}
-.floating-nav:hover {
-  background: rgba(0,0,0,0.8);
-  transform: translateY(-50%) scale(1.05);
-}
-.floating-nav-prev {
-  left: 16px;
-}
-.floating-nav-next {
-  right: 16px;
-}
-.floating-nav svg {
-  width: 22px;
-  height: 22px;
-}
-
-/* Floating Controls (rotate & zoom) */
-.floating-controls {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(8px);
-  padding: 8px 12px;
-  border-radius: 40px;
-  border: 1px solid rgba(255,255,255,0.2);
-  z-index: 20;
-}
-.floating-control-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255,255,255,0.1);
-  border: none;
-  color: #fff;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: background 0.15s;
-  font-size: 11px;
-  font-weight: 600;
-}
-.floating-control-btn:hover:not(:disabled) {
-  background: rgba(255,255,255,0.25);
-}
-.floating-control-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.zoom-label {
-  width: auto;
-  min-width: 50px;
-  border-radius: 20px;
-  background: rgba(255,255,255,0.15);
-  font-size: 12px;
+  max-width: 100%; max-height: 100%;
+  object-fit: contain; display: block;
+  will-change: transform; border-radius: 2px;
 }
 
 .modal-bottombar {
-  padding: 12px 16px;
-  background: rgba(0,0,0,0.7);
-  backdrop-filter: blur(8px);
+  padding: 8px 16px 10px;
+  background: rgba(255,255,255,0.04);
   border-top: 1px solid rgba(255,255,255,0.08);
-  flex-shrink: 0; 
-  display: flex; 
-  flex-direction: column; 
-  gap: 8px;
+  flex-shrink: 0; display: flex; flex-direction: column; gap: 6px;
 }
 
+/* Tombol tambah estimasi di dalam preview */
 .btn-add-est-modal {
-  display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 10px 14px;
-  background: rgba(229, 62, 62, 0.15);
-  border: 1px solid rgba(229, 62, 62, 0.4);
-  border-radius: 10px;
-  color: #fc8181; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 9px 12px;
+  background: rgba(229, 62, 62, 0.12);
+  border: 1px solid rgba(229, 62, 62, 0.35);
+  border-radius: 8px;
+  color: #fc8181; font-size: 11px; font-weight: 600;
   cursor: pointer; text-align: left;
   transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
-.btn-add-est-modal:active { background: rgba(229, 62, 62, 0.3); }
+.btn-add-est-modal:active { background: rgba(229, 62, 62, 0.25); }
 
-.modal-status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.info-label { font-size: 11px; color: rgba(255,255,255,0.5); font-weight: 500; flex-shrink: 0; }
+.est-btn-fade-enter-active { animation: estBtnIn 0.2s ease; }
+.est-btn-fade-leave-active { animation: estBtnOut 0.15s ease forwards; }
+@keyframes estBtnIn  { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes estBtnOut { from { opacity: 1; } to { opacity: 0; } }
+
+.modal-status-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.info-label { font-size: 11px; color: rgba(255,255,255,0.42); font-weight: 500; flex-shrink: 0; }
 .status-chip { font-size: 12px; font-weight: 600; }
 .sep { color: rgba(255,255,255,0.3); font-size: 12px; }
 
-.extra-info-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.extra-info-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .extra-info-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: rgba(13,152,216,0.15); border: 1px solid rgba(13,152,216,0.3);
-  border-radius: 6px; padding: 4px 10px; font-size: 11.5px;
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(13,152,216,0.12); border: 1px solid rgba(13,152,216,0.28);
+  border-radius: 5px; padding: 3px 9px; font-size: 11.5px;
 }
-.extra-info-label { color: rgba(255,255,255,0.5); font-weight: 500; }
-.extra-info-value { color: #7dd8f5; font-weight: 700; }
-.modal-note { font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.5; display: flex; gap: 8px; }
-.modal-caption-text { font-size: 11px; color: rgba(255,255,255,0.4); font-style: italic; }
+.extra-info-label { color: rgba(255,255,255,0.45); font-weight: 500; }
+.extra-info-value { color: #7dd8f5; font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: 0.4px; }
+.modal-note { font-size: 12px; color: rgba(255,255,255,0.6); line-height: 1.5; display: flex; gap: 5px; }
+.modal-caption-text { font-size: 11px; color: rgba(255,255,255,0.32); font-style: italic; }
 
 .thumb-strip {
-  display: flex; gap: 8px; padding: 10px 16px;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(8px);
+  display: flex; gap: 6px; padding: 7px 12px;
+  background: rgba(0,0,0,0.45);
   border-top: 1px solid rgba(255,255,255,0.06);
   overflow-x: auto; flex-shrink: 0; scroll-behavior: smooth;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent;
 }
-.thumb-strip::-webkit-scrollbar { height: 4px; }
-.thumb-strip::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+.thumb-strip::-webkit-scrollbar { height: 3px; }
+.thumb-strip::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 2px; }
 
-.thumb-item { 
-  flex-shrink: 0; 
-  display: flex; 
-  flex-direction: column; 
-  align-items: center; 
-  gap: 4px; 
-  cursor: pointer; 
-  opacity: 0.5; 
-  transition: opacity 0.15s, transform 0.15s; 
-}
-.thumb-item:hover { opacity: 0.8; transform: translateY(-2px); }
+.thumb-item { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; opacity: 0.45; transition: opacity 0.15s, transform 0.15s; }
+.thumb-item:hover { opacity: 0.75; transform: translateY(-1px); }
 .thumb-item.active { opacity: 1; }
-.thumb-img { 
-  width: 60px; 
-  height: 45px; 
-  object-fit: cover; 
-  border-radius: 6px; 
-  border: 2px solid transparent; 
-  transition: border-color 0.15s; 
-}
+.thumb-img { width: 56px; height: 42px; object-fit: cover; border-radius: 4px; border: 2px solid transparent; transition: border-color 0.15s; }
 .thumb-item.active .thumb-img { border-color: #0d98d8; }
-.thumb-name { 
-  font-size: 9px; 
-  color: rgba(255,255,255,0.6); 
-  max-width: 60px; 
-  text-align: center; 
-  overflow: hidden; 
-  white-space: nowrap; 
-  text-overflow: ellipsis; 
-}
+.thumb-name { font-size: 9px; color: rgba(255,255,255,0.42); max-width: 56px; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 1.2; }
 .thumb-item.active .thumb-name { color: #7dd8f5; }
 
+@media (max-width: 600px) {
+  .modal-topbar { padding: 7px 8px; }
+  .modal-item-name { font-size: 12px; }
+  .action-btn { width: 30px; height: 30px; }
+  .nav-btn { width: 32px; }
+  .thumb-img { width: 44px; height: 34px; }
+  .thumb-name { max-width: 44px; }
+  .btn-add-est-modal { font-size: 10px; padding: 8px 10px; }
+}
+
+/* Tombol Kembali di bagian bawah */
 .btn-back-modal {
-  display: flex; 
-  align-items: center; 
-  justify-content: center; 
-  gap: 10px;
-  width: calc(100% - 32px);
-  margin: 0 16px 16px 16px;
-  padding: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 10px 12px;
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 10px;
+  border-radius: 8px;
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
-  flex-shrink: 0;
-}
-.btn-back-modal:hover {
-  background: rgba(255,255,255,0.15);
+  margin-top: 4px;
+  -webkit-tap-highlight-color: transparent;
 }
 .btn-back-modal:active {
-  background: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.18);
+}
+.btn-back-modal svg {
+  flex-shrink: 0;
 }
 
-@media (max-width: 600px) {
-  .floating-nav {
-    width: 36px;
-    height: 36px;
-  }
-  .floating-nav svg {
-    width: 18px;
-    height: 18px;
-  }
-  .floating-nav-prev { left: 8px; }
-  .floating-nav-next { right: 8px; }
-  
-  .floating-controls {
-    padding: 6px 10px;
-    gap: 4px;
-  }
-  .floating-control-btn {
-    width: 32px;
-    height: 32px;
-  }
-  .zoom-label {
-    min-width: 45px;
-  }
-  
-  .thumb-img {
-    width: 48px;
-    height: 36px;
-  }
-  .thumb-name {
-    max-width: 48px;
-    font-size: 8px;
-  }
-  
-  .btn-back-modal {
-    margin: 0 12px 12px 12px;
-    width: calc(100% - 24px);
-    padding: 10px;
-  }
-}
+.est-btn-fade-enter-active { animation: estBtnIn 0.2s ease; }
+.est-btn-fade-leave-active { animation: estBtnOut 0.15s ease forwards; }
+@keyframes estBtnIn  { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes estBtnOut { from { opacity: 1; } to { opacity: 0; } }
 </style>

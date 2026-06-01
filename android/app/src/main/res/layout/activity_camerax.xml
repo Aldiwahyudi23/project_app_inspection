@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Struktur: Header (56dp) → Preview (0dp, mengisi sisa) → Footer (110dp)
+  PreviewView lebar PENUH, tinggi mengisi semua ruang antara header & footer.
+  FIT_CENTER di Java = preview tidak crop, WYSIWYG, sisa area tetap hitam.
+  
+  Overlay hitam atas & bawah digunakan untuk mode 1:1
+  Tombol aspect ratio muncul hanya di mode flexible (tanpa aspect ratio dari item)
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- ══════════════════════════════
+         HEADER
+    ══════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/headerBar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="8dp"
+        android:background="#000000">
+
+        <TextView
+            android:id="@+id/tvItemName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Item"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <ImageButton
+            android:id="@+id/btnClose"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Tutup"
+            android:padding="10dp" />
+
+    </LinearLayout>
+
+    <!-- ══════════════════════════════
+         PREVIEW CONTAINER — dengan overlay untuk mode 1:1
+         Overlay hitam akan menutupi area di luar kotak 1:1
+    ══════════════════════════════ -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#000000">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- Overlay hitam untuk area di atas kotak 1:1 -->
+        <View
+            android:id="@+id/overlayTop"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:background="#000000"
+            android:visibility="gone" />
+
+        <!-- Overlay hitam untuk area di bawah kotak 1:1 -->
+        <View
+            android:id="@+id/overlayBottom"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:background="#000000"
+            android:visibility="gone" />
+
+        <!-- Focus ring — posisi di-set Java -->
+        <View
+            android:id="@+id/focusRing"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:background="@drawable/bg_focus_ring"
+            android:visibility="invisible" />
+
+    </FrameLayout>
+
+    <!-- ══════════════════════════════
+         FOOTER
+    ══════════════════════════════ -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        xmlns:app="http://schemas.android.com/apk/res-auto"
+        android:id="@+id/footerBar"
+        android:layout_width="match_parent"
+        android:layout_height="110dp"
+        android:background="#000000">
+
+        <!-- Flash kiri -->
+        <ImageButton
+            android:id="@+id/btnFlash"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:src="@drawable/ic_flash_off"
+            android:background="@drawable/bg_circle_transparent"
+            android:contentDescription="Flash"
+            android:padding="12dp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            android:layout_marginStart="36dp" />
+
+        <!-- Capture tengah -->
+        <ImageButton
+            android:id="@+id/btnCapture"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
+            android:background="@drawable/bg_capture_button"
+            android:contentDescription="Ambil Foto"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+        <!-- Aspect Ratio kanan (hanya tampil di mode flexible) -->
+        <Button
+            android:id="@+id/btnAspectRatio"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:text="1:1"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:background="@drawable/bg_circle_transparent"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            android:layout_marginEnd="36dp" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</LinearLayout>

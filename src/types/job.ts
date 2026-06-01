@@ -20,6 +20,7 @@ export interface JobStatusInfo {
 export interface JobLabel {
   license_plate: string;
   vehicle_name: string;
+  display_image: string | null;
   inspection_date_formatted: string;
 }
 
@@ -77,6 +78,7 @@ export interface Document {
 export interface Vehicle {
   license_plate: string;
   vehicle_name: string;
+  display_image: string | null;
   brand: string;
   model: string;
   type: string;
@@ -113,6 +115,17 @@ export interface JobDetail {
   vehicle: Vehicle;
   template: Template;
   document: Document;
+  template_form?: {
+    selected: { id: number | null; name: string | null }
+    is_editable: boolean
+    options: { id: number; name: string }[]
+  } | null
+
+  template_report?: {
+    selected: { id: number | null; name: string | null ; type: string | null }
+    is_editable: boolean
+    options: { id: number; name: string }[]
+  } | null
 }
 
 export interface JobDetailResponse {
@@ -277,3 +290,5 @@ export interface JobState {
     initial: boolean;
   };
 }
+
+

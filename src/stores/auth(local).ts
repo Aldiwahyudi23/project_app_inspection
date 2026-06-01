@@ -3,7 +3,14 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '../services/api'
 import { Storage } from '../services/storage'
-import type { User, LoginCredentials } from '../types'
+import type {
+  User,
+  LoginCredentials,
+  OtpRequestPayload,
+  VerifyOtpPayload
+} from '../types'
+
+import { getDeviceInfo } from '../services/device'
 
 export const useAuthStore = defineStore('auth', () => {
 
@@ -71,6 +78,102 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // ============================================================
+// REQUEST OTP
+// ============================================================
+async function requestOtp(phone: string) {
+
+  isLoading.value = true
+  error.value = null
+
+  try {
+
+    const device = await getDeviceInfo()
+
+    const payload: OtpRequestPayload = {
+      phone,
+      device_id: device.device_id,
+      device_name: device.device_name,
+      device_platform: device.device_platform
+    }
+
+    const response = await api.post('/request-otp', payload)
+
+    return response.data
+
+  } catch (err: any) {
+
+    if (err.response) {
+      error.value = err.response.data?.message || 'Gagal mengirim OTP'
+    } else if (err.request) {
+      error.value = 'Tidak dapat terhubung ke server.'
+    } else {
+      error.value = 'Terjadi kesalahan.'
+    }
+
+    throw err
+
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// ============================================================
+// VERIFY OTP
+// ============================================================
+async function verifyOtp(phone: string, otp: string) {
+
+  isLoading.value = true
+  error.value = null
+
+  try {
+
+    const device = await getDeviceInfo()
+
+    const payload: VerifyOtpPayload = {
+      phone,
+      otp,
+      device_id: device.device_id,
+      device_name: device.device_name,
+      device_platform: device.device_platform
+    }
+
+    const response = await api.post('/verify-otp', payload)
+
+    // ============================================================
+    // SAVE LOGIN
+    // ============================================================
+
+    token.value = response.data.data.token
+    user.value = response.data.data.user
+
+    if (token.value) {
+      await Storage.set('token', token.value)
+    }
+
+    if (user.value) {
+      await Storage.set('user', JSON.stringify(user.value))
+    }
+
+    return response.data
+
+  } catch (err: any) {
+
+    if (err.response) {
+      error.value = err.response.data?.message || 'OTP tidak valid'
+    } else if (err.request) {
+      error.value = 'Tidak dapat terhubung ke server.'
+    } else {
+      error.value = 'Terjadi kesalahan.'
+    }
+
+    throw err
+
+  } finally {
+    isLoading.value = false
+  }
+}
+
+  // ============================================================
   // LOGOUT
   // ============================================================
   async function logout() {
@@ -83,7 +186,7 @@ export const useAuthStore = defineStore('auth', () => {
       token.value = null
       await Storage.remove('token')
       await Storage.remove('user')
-      window.location.href = '/login'
+      window.location.href = '/login-otp'
     }
   }
 
@@ -133,7 +236,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (event.key === 'token' && event.newValue === null) {
         user.value = null
         token.value = null
-        window.location.href = '/login'
+        window.location.href = '/login-otp'
       }
     })
   }
@@ -144,6 +247,8 @@ export const useAuthStore = defineStore('auth', () => {
     isLoading,
     error,
     login,
+    requestOtp,
+    verifyOtp,
     logout,
     checkAuth,
     initStore
